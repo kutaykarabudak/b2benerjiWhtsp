@@ -170,26 +170,57 @@ func (a *App) WebhookHandler(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid payload", nil, "")
 	}
 
-	// Verify webhook signature before processing any fields.
-	// Find a phoneNumberID from any change to look up the account's AppSecret.
+	// Verify webhook signatures before processing. Message events identify a
+	// phone number, while template events may only identify the WABA, so try the
+	// global App Secret and all matching account secrets. Production never
+	// accepts an unsigned or unverifiable payload.
+	requireSignature := a.Config.App.Environment == "production"
+	if len(signature) == 0 && requireSignature {
+		a.Log.Warn("Missing webhook signature")
+		return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Missing signature", nil, "")
+	}
+
 	if len(signature) > 0 {
+		verified := false
+		candidateFound := false
+		trySecret := func(secret string) {
+			if secret == "" || verified {
+				return
+			}
+			candidateFound = true
+			verified = verifyWebhookSignature(body, signature, []byte(secret))
+		}
+
+		trySecret(a.Config.WhatsApp.AppSecret)
 		for _, entry := range payload.Entry {
 			for _, change := range entry.Changes {
 				phoneNumberID := change.Value.Metadata.PhoneNumberID
 				if phoneNumberID == "" {
 					continue
 				}
-				account, err := a.getWhatsAppAccountCached(phoneNumberID)
-				if err != nil || account.AppSecret == "" {
-					continue
+				if account, err := a.getWhatsAppAccountCached(phoneNumberID); err == nil {
+					trySecret(account.AppSecret)
 				}
-				if !verifyWebhookSignature(body, signature, []byte(account.AppSecret)) {
-					a.Log.Warn("Invalid webhook signature", "phone_id", phoneNumberID)
-					return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Invalid signature", nil, "")
-				}
-				a.Log.Debug("Webhook signature verified successfully")
-				break
 			}
+
+			// Some events (for example template status updates) omit phone ID.
+			if entry.ID != "" && !verified {
+				var accounts []models.WhatsAppAccount
+				if err := a.DB.Where("business_id = ?", entry.ID).Find(&accounts).Error; err == nil {
+					for i := range accounts {
+						accounts[i].DecryptSecrets(a.Config.App.EncryptionKey)
+						trySecret(accounts[i].AppSecret)
+					}
+				}
+			}
+		}
+
+		if !verified && (candidateFound || requireSignature) {
+			a.Log.Warn("Invalid or unverifiable webhook signature")
+			return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Invalid signature", nil, "")
+		}
+		if verified {
+			a.Log.Debug("Webhook signature verified successfully")
 		}
 	}
 

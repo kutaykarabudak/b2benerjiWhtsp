@@ -2,6 +2,8 @@
 
 # Whatomate
 
+> **B2B Enerji dağıtımı:** Bu fork, Cloud Run + Firebase Hosting (`web.app`) için güvenli secret yönetimi ve Firebase'in `__session` cookie kısıtına uyum içerir. Türkçe kurulum rehberi: [docs/GCP_DEPLOYMENT_TR.md](docs/GCP_DEPLOYMENT_TR.md)
+
 Modern, open-source WhatsApp Business Platform. Single binary app.
 
 ![Dashboard](docs/public/images/dashboard-light.png#gh-light-mode-only)

@@ -156,6 +156,15 @@ func AuthWithDB(secret string, db *gorm.DB) fastglue.FastMiddleware {
 		} else {
 			// Fall back to whm_access cookie
 			tokenString = string(r.RequestCtx.Request.Header.Cookie("whm_access"))
+			if tokenString == "" {
+				// Firebase Hosting strips all cookies except __session. In that
+				// deployment mode the access and refresh JWTs are transport-bundled
+				// in __session, while JWT signature validation remains unchanged.
+				sessionCookie := string(r.RequestCtx.Request.Header.Cookie(FirebaseSessionCookieName))
+				if accessToken, _, err := DecodeFirebaseSession(sessionCookie); err == nil {
+					tokenString = accessToken
+				}
+			}
 		}
 
 		if tokenString == "" {

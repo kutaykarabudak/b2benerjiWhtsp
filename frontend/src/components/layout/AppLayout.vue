@@ -63,12 +63,14 @@ function filterItems(items: NavSection['items']) {
         effectivePath = filteredChildren[0].path
       }
 
-      const originalPath = item.path
-      const isActive = originalPath === '/'
+      const matchesPath = (path: string) => path === '/'
         ? route.name === 'dashboard'
-        : originalPath === '/chat'
+        : path === '/chat'
           ? route.name === 'chat' || route.name === 'chat-conversation'
-          : route.path.startsWith(originalPath)
+          : route.path.startsWith(path)
+
+      const originalPath = item.path
+      const isActive = matchesPath(originalPath) || Boolean(filteredChildren?.some(child => matchesPath(child.path)))
 
       return {
         ...item,
@@ -113,7 +115,7 @@ const handleLogout = async () => {
         <div class="h-7 w-7 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
           <MessageSquare class="h-4 w-4 text-white" />
         </div>
-        <span class="font-semibold text-sm text-white light:text-gray-900">Whatomate</span>
+        <span class="font-semibold text-sm text-white light:text-gray-900">B2B Enerji</span>
       </RouterLink>
       <Button
         variant="ghost"
@@ -157,7 +159,7 @@ const handleLogout = async () => {
             v-if="!isCollapsed"
             class="font-semibold text-sm text-white light:text-gray-900"
           >
-            Whatomate
+            B2B Enerji
           </span>
         </RouterLink>
         <Button

@@ -62,6 +62,7 @@ config_id = ""  # WhatsApp Config ID for frontend login
 [cookie]
 domain = ""    # Cookie domain (e.g., ".example.com"). Empty = current host only.
 secure = false # Set Secure flag on cookies. Auto-set true when environment=production.
+firebase_hosting = false # Set true when Firebase Hosting rewrites requests to Cloud Run.
 
 # Rate limiting for auth endpoints (uses Redis fixed-window counters)
 [rate_limit]

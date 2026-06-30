@@ -125,6 +125,12 @@ func runServer(args []string) {
 	if cfg.JWT.Secret == "" {
 		lo.Warn("JWT secret is empty, using a random secret (tokens will not persist across restarts)")
 	}
+	if cfg.App.Environment == "production" && len(cfg.App.EncryptionKey) < 32 {
+		lo.Fatal("app.encryption_key must be at least 32 characters in production")
+	}
+	if cfg.App.Environment == "production" && len(cfg.DefaultAdmin.Password) < 12 {
+		lo.Fatal("default admin password must be at least 12 characters in production")
+	}
 
 	// Warn if debug mode is on in production
 	if cfg.App.Environment == "production" && cfg.App.Debug {
@@ -253,7 +259,7 @@ func runServer(args []string) {
 	g.Before(middleware.SecurityHeaders())
 	g.Before(middleware.RequestLogger(lo))
 	g.Before(middleware.Recovery(lo))
-	g.Before(middleware.CSRFProtection())
+	g.Before(middleware.CSRFProtection(allowedOrigins))
 
 	// Setup routes
 	setupRoutes(g, app, lo, cfg.Server.BasePath, rdb, cfg)
@@ -455,6 +461,38 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.GET("/health", app.HealthCheck)
 	g.GET("/ready", app.ReadyCheck)
 
+	g.GET("/privacy", func(r *fastglue.Request) error {
+		r.RequestCtx.Response.Header.SetContentType("text/html; charset=utf-8")
+		r.RequestCtx.Response.SetBodyString(`<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>B2B Enerji WhatsApp Gizlilik Politikası</title>
+  <style>
+    body{font-family:Arial,sans-serif;line-height:1.6;max-width:860px;margin:40px auto;padding:0 20px;color:#111827}
+    h1,h2{line-height:1.25} small{color:#6b7280}
+  </style>
+</head>
+<body>
+  <h1>B2B Enerji WhatsApp Gizlilik Politikası</h1>
+  <small>Son güncelleme: 30 Haziran 2026</small>
+  <p>Bu sayfa, B2B Enerji WhatsApp iletişim paneli kapsamında işlenen kişisel verilere ilişkin temel bilgilendirme amacıyla hazırlanmıştır.</p>
+  <h2>Toplanan veriler</h2>
+  <p>WhatsApp üzerinden bizimle iletişime geçtiğinizde ad, telefon numarası, mesaj içerikleri, teslimat/okundu bilgileri ve iletişim tercihleri gibi veriler işlenebilir.</p>
+  <h2>Kullanım amacı</h2>
+  <p>Bu veriler müşteri iletişimi yürütmek, talepleri yanıtlamak, bilgilendirme göndermek, kampanya ve destek süreçlerini yönetmek amacıyla kullanılır.</p>
+  <h2>Paylaşım</h2>
+  <p>Veriler, hizmetin çalışması için Meta WhatsApp Business Platform, barındırma ve teknik altyapı sağlayıcıları ile sınırlı şekilde işlenebilir. Veriler izinsiz üçüncü taraf pazarlaması için satılmaz.</p>
+  <h2>Saklama ve güvenlik</h2>
+  <p>Veriler yalnızca gerekli süre boyunca saklanır ve yetkisiz erişime karşı teknik/idari önlemler uygulanır.</p>
+  <h2>İletişim</h2>
+  <p>Gizlilik talepleriniz için bizimle WhatsApp veya resmi iletişim kanallarımız üzerinden iletişime geçebilirsiniz.</p>
+</body>
+</html>`)
+		return nil
+	})
+
 	g.GET("/api/embedded-signup/config", app.GetEmbeddedSignupConfig)
 
 	// Auth routes (public, optionally rate-limited)
@@ -470,7 +508,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 		g.POST("/api/auth/login", withRateLimit(app.Login, middleware.RateLimitOpts{
 			Redis: rdb, Log: lo, Max: cfg.RateLimit.LoginMaxAttempts, Window: window, KeyPrefix: "login", TrustProxy: cfg.RateLimit.TrustProxy,
 		}))
-		g.POST("/api/auth/register", withRateLimit(app.Register, middleware.RateLimitOpts{
+		g.POST("/api/auth/register", withRateLimit(app.RegisterDisabled, middleware.RateLimitOpts{
 			Redis: rdb, Log: lo, Max: cfg.RateLimit.RegisterMaxAttempts, Window: window, KeyPrefix: "register", TrustProxy: cfg.RateLimit.TrustProxy,
 		}))
 		g.POST("/api/auth/refresh", withRateLimit(app.RefreshToken, middleware.RateLimitOpts{
@@ -478,7 +516,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 		}))
 	} else {
 		g.POST("/api/auth/login", app.Login)
-		g.POST("/api/auth/register", app.Register)
+		g.POST("/api/auth/register", app.RegisterDisabled)
 		g.POST("/api/auth/refresh", app.RefreshToken)
 	}
 	g.POST("/api/auth/logout", app.Logout)

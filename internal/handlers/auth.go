@@ -263,11 +263,24 @@ func (a *App) Register(r *fastglue.Request) error {
 	})
 }
 
+// RegisterDisabled keeps the public registration endpoint closed for private
+// deployments. Users must be created by an authenticated administrator via the
+// users management screen/API.
+func (a *App) RegisterDisabled(r *fastglue.Request) error {
+	return r.SendErrorEnvelope(fasthttp.StatusForbidden, "Registration is disabled. Please contact your administrator.", nil, "")
+}
+
 // RefreshToken refreshes access token using refresh token with rotation.
 // The old refresh token is invalidated (single-use) and a new one is issued.
 func (a *App) RefreshToken(r *fastglue.Request) error {
 	// Read refresh token from cookie first, fall back to JSON body.
 	refreshTokenStr := string(r.RequestCtx.Request.Header.Cookie(cookieRefreshName))
+	if refreshTokenStr == "" {
+		sessionCookie := string(r.RequestCtx.Request.Header.Cookie(middleware.FirebaseSessionCookieName))
+		if _, refreshToken, err := middleware.DecodeFirebaseSession(sessionCookie); err == nil {
+			refreshTokenStr = refreshToken
+		}
+	}
 	if refreshTokenStr == "" {
 		var req RefreshRequest
 		_ = r.Decode(&req, "json")
@@ -489,6 +502,12 @@ type LogoutRequest struct {
 func (a *App) Logout(r *fastglue.Request) error {
 	// Read refresh token from cookie first, fall back to body.
 	refreshTokenStr := string(r.RequestCtx.Request.Header.Cookie(cookieRefreshName))
+	if refreshTokenStr == "" {
+		sessionCookie := string(r.RequestCtx.Request.Header.Cookie(middleware.FirebaseSessionCookieName))
+		if _, refreshToken, err := middleware.DecodeFirebaseSession(sessionCookie); err == nil {
+			refreshTokenStr = refreshToken
+		}
+	}
 	if refreshTokenStr == "" {
 		var req LogoutRequest
 		_ = r.Decode(&req, "json")

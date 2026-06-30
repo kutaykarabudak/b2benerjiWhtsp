@@ -23,12 +23,6 @@ const router = createRouter({
       meta: { requiresAuth: false }
     },
     {
-      path: '/register',
-      name: 'register',
-      component: () => import('@/views/auth/RegisterView.vue'),
-      meta: { requiresAuth: false }
-    },
-    {
       path: '/auth/sso/callback',
       name: 'sso-callback',
       component: () => import('@/views/auth/SSOCallbackView.vue'),
@@ -340,14 +334,15 @@ const router = createRouter({
 // Navigation items with permissions in priority order (matches AppLayout.vue)
 // Used to find the first accessible route for a user
 const navigationOrder = [
-  { path: '/', permission: 'analytics' },
   { path: '/chat', permission: 'chat' },
+  { path: '/campaigns', permission: 'campaigns' },
   { path: '/chatbot', permission: 'settings.chatbot', childPaths: [
     { path: '/chatbot', permission: 'settings.chatbot' },
     { path: '/chatbot/keywords', permission: 'chatbot.keywords' },
     { path: '/chatbot/flows', permission: 'flows.chatbot' },
     { path: '/chatbot/ai', permission: 'chatbot.ai' }
   ]},
+  { path: '/', permission: 'analytics' },
   { path: '/chatbot/transfers', permission: 'transfers' },
   { path: '/analytics/agents', permission: 'analytics.agents' },
   { path: '/analytics/meta-insights', permission: 'analytics' },
@@ -420,7 +415,7 @@ router.beforeEach(async (to, _from, next) => {
     }
   } else {
     // Redirect to appropriate page if already logged in
-    if (authStore.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
+    if (authStore.isAuthenticated && to.name === 'login') {
       return next({ path: getFirstAccessibleRoute(authStore) })
     }
   }

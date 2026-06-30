@@ -171,8 +171,9 @@ type DefaultAdminConfig struct {
 }
 
 type CookieConfig struct {
-	Domain string `koanf:"domain"` // Cookie domain (e.g., ".example.com"). Empty = current host.
-	Secure bool   `koanf:"secure"` // Set Secure flag. Auto-set true when environment=production.
+	Domain          string `koanf:"domain"`           // Cookie domain (e.g., ".example.com"). Empty = current host.
+	Secure          bool   `koanf:"secure"`           // Set Secure flag. Auto-set true when environment=production.
+	FirebaseHosting bool   `koanf:"firebase_hosting"` // Bundle auth tokens in Firebase Hosting's only forwarded cookie: __session.
 }
 
 type RateLimitConfig struct {

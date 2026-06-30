@@ -50,21 +50,15 @@ for (const path in localeModules) {
   messages[code] = localeModules[path]
 }
 
-// Get saved locale or detect from browser
+// Get saved locale or default to Turkish for the B2B Enerji deployment.
 function getDefaultLocale(): string {
   // Check localStorage first
   const saved = localStorage.getItem('locale')
-  if (saved && messages[saved]) {
+  if (saved && saved !== 'en' && messages[saved]) {
     return saved
   }
 
-  // Detect from browser
-  const browserLang = navigator.language.split('-')[0]
-  if (messages[browserLang]) {
-    return browserLang
-  }
-
-  return 'en'
+  return messages.tr ? 'tr' : 'en'
 }
 
 export const i18n = createI18n({

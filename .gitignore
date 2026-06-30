@@ -60,3 +60,7 @@ test-results/
 
 # Docker 
 docker/.env
+
+# Local Google Cloud deployment inputs (identifiers and network configuration)
+deploy/cloudrun.env
+.firebaserc

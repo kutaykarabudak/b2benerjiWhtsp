@@ -45,27 +45,21 @@ export interface NavSection {
 
 export const navigationSections: NavSection[] = [
   {
-    label: 'nav.sectionMain',
-    permissions: ['analytics', 'chat'],
+    label: 'nav.sectionFocus',
+    permissions: ['chat', 'campaigns', 'settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers'],
     items: [
-      {
-        name: 'nav.dashboard',
-        path: '/',
-        icon: LayoutDashboard,
-        permission: 'analytics'
-      },
       {
         name: 'nav.chat',
         path: '/chat',
         icon: MessageSquare,
         permission: 'chat'
       },
-    ]
-  },
-  {
-    label: 'nav.sectionMessaging',
-    permissions: ['settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers', 'campaigns', 'templates', 'flows.whatsapp'],
-    items: [
+      {
+        name: 'nav.campaigns',
+        path: '/campaigns',
+        icon: Megaphone,
+        permission: 'campaigns'
+      },
       {
         name: 'nav.chatbot',
         path: '/chatbot',
@@ -79,66 +73,29 @@ export const navigationSections: NavSection[] = [
           { name: 'nav.aiContexts', path: '/chatbot/ai', icon: Sparkles, permission: 'chatbot.ai' },
           { name: 'nav.transfers', path: '/chatbot/transfers', icon: UserX, permission: 'transfers' }
         ]
-      },
-      {
-        name: 'nav.campaigns',
-        path: '/campaigns',
-        icon: Megaphone,
-        permission: 'campaigns'
-      },
-      {
-        name: 'nav.templates',
-        path: '/templates',
-        icon: FileText,
-        permission: 'templates'
-      },
-      {
-        name: 'nav.flows',
-        path: '/flows',
-        icon: Workflow,
-        permission: 'flows.whatsapp'
-      },
+      }
     ]
   },
   {
-    label: 'nav.sectionCalling',
-    permissions: ['call_logs', 'ivr_flows', 'call_transfers'],
-    items: [
-      { name: 'nav.callLogs', path: '/calling/logs', icon: PhoneCall, permission: 'call_logs' },
-      { name: 'nav.ivrFlows', path: '/calling/ivr-flows', icon: Workflow, permission: 'ivr_flows' },
-      { name: 'nav.callTransfers', path: '/calling/transfers', icon: PhoneForwarded, permission: 'call_transfers' },
-    ]
-  },
-  {
-    label: 'nav.sectionAnalytics',
-    permissions: ['analytics.agents', 'analytics'],
-    items: [
-      {
-        name: 'nav.agentAnalytics',
-        path: '/analytics/agents',
-        icon: BarChart3,
-        permission: 'analytics.agents'
-      },
-      {
-        name: 'nav.metaInsights',
-        path: '/analytics/meta-insights',
-        icon: LineChart,
-        permission: 'analytics'
-      },
-    ]
-  },
-  {
-    label: '',
-    permissions: ['settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
+    label: 'nav.sectionOther',
+    permissions: ['analytics', 'templates', 'flows.whatsapp', 'call_logs', 'ivr_flows', 'call_transfers', 'analytics.agents', 'settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
     pinBottom: true,
     items: [
       {
-        name: 'nav.settings',
+        name: 'nav.otherTasks',
         path: '/settings',
         icon: Settings,
         permission: 'settings.general',
-        childPermissions: ['settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
+        childPermissions: ['analytics', 'templates', 'flows.whatsapp', 'call_logs', 'ivr_flows', 'call_transfers', 'analytics.agents', 'settings.general', 'settings.chatbot', 'accounts', 'contacts', 'canned_responses', 'tags', 'teams', 'users', 'roles', 'api_keys', 'webhooks', 'custom_actions', 'settings.sso', 'audit_logs'],
         children: [
+          { name: 'nav.dashboard', path: '/', icon: LayoutDashboard, permission: 'analytics' },
+          { name: 'nav.templates', path: '/templates', icon: FileText, permission: 'templates' },
+          { name: 'nav.flows', path: '/flows', icon: Workflow, permission: 'flows.whatsapp' },
+          { name: 'nav.agentAnalytics', path: '/analytics/agents', icon: BarChart3, permission: 'analytics.agents' },
+          { name: 'nav.metaInsights', path: '/analytics/meta-insights', icon: LineChart, permission: 'analytics' },
+          { name: 'nav.callLogs', path: '/calling/logs', icon: PhoneCall, permission: 'call_logs' },
+          { name: 'nav.ivrFlows', path: '/calling/ivr-flows', icon: Workflow, permission: 'ivr_flows' },
+          { name: 'nav.callTransfers', path: '/calling/transfers', icon: PhoneForwarded, permission: 'call_transfers' },
           { name: 'nav.general', path: '/settings', icon: Settings, permission: 'settings.general' },
           { name: 'nav.chatbot', path: '/settings/chatbot', icon: Bot, permission: 'settings.chatbot' },
           { name: 'nav.accounts', path: '/settings/accounts', icon: Users, permission: 'accounts' },

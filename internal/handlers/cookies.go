@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 
+	"github.com/shridarpatil/whatomate/internal/middleware"
 	"github.com/valyala/fasthttp"
 	"github.com/zerodha/fastglue"
 )
@@ -19,6 +20,23 @@ func (a *App) setAuthCookies(r *fastglue.Request, accessToken, refreshToken stri
 	secure := a.Config.Cookie.Secure
 	domain := a.Config.Cookie.Domain
 	bp := a.Config.Server.BasePath // e.g. "/whatomate" or ""
+
+	if a.Config.Cookie.FirebaseHosting {
+		c := fasthttp.AcquireCookie()
+		c.SetKey(middleware.FirebaseSessionCookieName)
+		c.SetValue(middleware.EncodeFirebaseSession(accessToken, refreshToken))
+		c.SetHTTPOnly(true)
+		c.SetSecure(secure)
+		c.SetSameSite(fasthttp.CookieSameSiteLaxMode)
+		c.SetPath(bp + "/")
+		c.SetMaxAge(a.Config.JWT.RefreshExpiryDays * 86400)
+		if domain != "" {
+			c.SetDomain(domain)
+		}
+		r.RequestCtx.Response.Header.SetCookie(c)
+		fasthttp.ReleaseCookie(c)
+		return
+	}
 
 	// Access token cookie — httpOnly, scoped to basePath/api
 	ac := fasthttp.AcquireCookie()
@@ -72,7 +90,7 @@ func (a *App) clearAuthCookies(r *fastglue.Request) {
 	domain := a.Config.Cookie.Domain
 
 	bp := a.Config.Server.BasePath
-	for _, name := range []string{cookieAccessName, cookieRefreshName, cookieCSRFName} {
+	for _, name := range []string{cookieAccessName, cookieRefreshName, cookieCSRFName, middleware.FirebaseSessionCookieName} {
 		c := fasthttp.AcquireCookie()
 		c.SetKey(name)
 		c.SetValue("")

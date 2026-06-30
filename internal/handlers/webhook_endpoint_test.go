@@ -181,6 +181,20 @@ func TestApp_WebhookHandler_NoSignatureNoAppSecret_Accepted(t *testing.T) {
 	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
 }
 
+func TestApp_WebhookHandler_ProductionRejectsMissingSignature(t *testing.T) {
+	app := newAppForWebhook(t, "")
+	app.Config.App.Environment = "production"
+
+	body := makeMessagesPayload("phone-production")
+	req := testutil.NewRequest(t)
+	req.RequestCtx.Request.Header.SetMethod("POST")
+	req.RequestCtx.Request.Header.SetContentType("application/json")
+	req.RequestCtx.Request.SetBody(body)
+
+	require.NoError(t, app.WebhookHandler(req))
+	assert.Equal(t, fasthttp.StatusForbidden, testutil.GetResponseStatusCode(req))
+}
+
 func TestApp_WebhookHandler_ValidSignature_Accepted(t *testing.T) {
 	app := newAppForWebhook(t, "")
 	org := testutil.CreateTestOrganization(t, app.DB)

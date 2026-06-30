@@ -5,9 +5,11 @@ import (
 	"github.com/zerodha/fastglue"
 )
 
-// CSRFProtection returns a middleware that validates CSRF tokens on mutating
-// requests that use cookie-based authentication.
-func CSRFProtection() fastglue.FastMiddleware {
+// CSRFProtection validates mutating cookie-authenticated requests. Standard
+// deployments use double-submit cookies. Firebase Hosting only forwards the
+// specially named __session cookie, so those requests use a strict Origin
+// allowlist check instead.
+func CSRFProtection(allowedOrigins map[string]bool) fastglue.FastMiddleware {
 	return func(r *fastglue.Request) *fastglue.Request {
 		method := string(r.RequestCtx.Method())
 
@@ -20,6 +22,20 @@ func CSRFProtection() fastglue.FastMiddleware {
 		// These are not automatically attached by the browser, so CSRF is not a concern.
 		if len(r.RequestCtx.Request.Header.Peek("Authorization")) > 0 ||
 			len(r.RequestCtx.Request.Header.Peek("X-API-Key")) > 0 {
+			return r
+		}
+
+		// Firebase Hosting strips the separate CSRF cookie. Browser requests
+		// carrying __session must therefore come from an explicitly allowed
+		// origin. Production startup already requires a non-empty allowlist.
+		if len(r.RequestCtx.Request.Header.Cookie(FirebaseSessionCookieName)) > 0 {
+			origin := string(r.RequestCtx.Request.Header.Peek("Origin"))
+			if origin == "" || !IsOriginAllowed(origin, allowedOrigins) {
+				r.RequestCtx.SetStatusCode(fasthttp.StatusForbidden)
+				r.RequestCtx.SetContentType("application/json")
+				r.RequestCtx.SetBodyString(`{"status":"error","message":"Origin validation failed"}`)
+				return nil
+			}
 			return r
 		}
 

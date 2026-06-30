@@ -163,10 +163,7 @@ const initiateSSO = (provider: string) => {
 
       <div class="px-8 pb-8">
         <p class="text-sm text-center text-white/40 light:text-gray-500">
-          {{ $t('auth.noAccount') }}
-          <RouterLink to="/register" class="text-emerald-400 light:text-emerald-600 hover:underline">
-            {{ $t('auth.signUp') }}
-          </RouterLink>
+          B2B Enerji yetkili kullanıcı paneli
         </p>
       </div>
     </div>
