@@ -605,6 +605,12 @@ func (a *App) SendMessage(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "Contact not found", nil, "")
 	}
 
+	// QR (WhatsApp Web) conversations are delivered via the whatsmeow connector,
+	// not the Cloud API. Only plain text is supported on this channel.
+	if contact.ChannelType == qrChannelType {
+		return a.sendQRMessage(r, orgID, userID, &contact, req.Content.Body)
+	}
+
 	// Get WhatsApp account - prefer request-specified account over contact default
 	accountName := contact.WhatsAppAccount
 	if req.WhatsAppAccount != "" {

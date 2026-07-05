@@ -171,6 +171,46 @@ func qrTruncate(s string, n int) string {
 	return s[:n]
 }
 
+// sendQRMessage delivers an agent's outbound text over the WhatsApp Web
+// connector and persists it as a whatsapp_qr message.
+func (a *App) sendQRMessage(r *fastglue.Request, orgID, userID uuid.UUID, contact *models.Contact, body string) error {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Message text is required", nil, "")
+	}
+	if a.QR == nil || a.QR.Status().State != "connected" {
+		return r.SendErrorEnvelope(fasthttp.StatusServiceUnavailable, "WhatsApp Web bağlı değil. Yönetim → Kanallar'dan QR ile bağlanın.", nil, "")
+	}
+	if err := a.QR.SendText(context.Background(), contact.PhoneNumber, body); err != nil {
+		a.Log.Error("QR: outbound send failed", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusBadGateway, "Mesaj gönderilemedi: "+err.Error(), nil, "")
+	}
+
+	msg := models.Message{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		OrganizationID:  orgID,
+		WhatsAppAccount: qrAccountName,
+		ChannelType:     qrChannelType,
+		ContactID:       contact.ID,
+		Direction:       models.DirectionOutgoing,
+		MessageType:     models.MessageTypeText,
+		Content:         body,
+		Status:          models.MessageStatusSent,
+		SentByUserID:    &userID,
+	}
+	if err := a.DB.Create(&msg).Error; err != nil {
+		a.Log.Error("QR: failed to save outbound message", "error", err)
+	}
+
+	now := time.Now()
+	contact.LastMessageAt = &now
+	contact.LastMessagePreview = qrTruncate(body, 100)
+	contact.IsRead = true
+	_ = a.DB.Save(contact).Error
+
+	return r.SendEnvelope(a.buildMessagesResponse([]models.Message{msg})[0])
+}
+
 // QRStatus returns the current connector state (disconnected / qr / connected).
 func (a *App) QRStatus(r *fastglue.Request) error {
 	if _, _, err := a.getOrgAndUserID(r); err != nil {
