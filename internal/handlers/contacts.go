@@ -37,6 +37,7 @@ type ContactResponse struct {
 	UnreadCount        int        `json:"unread_count"`
 	AssignedUserID     *uuid.UUID `json:"assigned_user_id,omitempty"`
 	WhatsAppAccount    string     `json:"whatsapp_account,omitempty"`
+	ChannelType        string     `json:"channel_type"`
 	LastInboundAt      *time.Time `json:"last_inbound_at,omitempty"`
 	ServiceWindowOpen  bool       `json:"service_window_open"`
 	MarketingOptOut    bool       `json:"marketing_opt_out"`
@@ -82,6 +83,15 @@ type ReactionInfo struct {
 	FromUser  string `json:"from_user,omitempty"`
 }
 
+// channelTypeOrDefault normalises an empty channel type (legacy rows written
+// before the column existed) to "whatsapp" so the inbox always has a value.
+func channelTypeOrDefault(ct string) string {
+	if ct == "" {
+		return "whatsapp"
+	}
+	return ct
+}
+
 // ListContacts returns all contacts for the organization
 // Users without contacts:read permission only see contacts assigned to them
 func (a *App) ListContacts(r *fastglue.Request) error {
@@ -94,6 +104,9 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	pg := parsePagination(r)
 	search := string(r.RequestCtx.QueryArgs().Peek("search"))
 	tagsParam := string(r.RequestCtx.QueryArgs().Peek("tags"))
+	channelParam := string(r.RequestCtx.QueryArgs().Peek("channel")) // comma-separated channel types
+	unreadParam := string(r.RequestCtx.QueryArgs().Peek("unread"))   // "true" -> only unread conversations
+	assignedParam := string(r.RequestCtx.QueryArgs().Peek("assigned")) // "me" -> only assigned to caller
 
 	var contacts []models.Contact
 	query := a.ScopeToOrg(a.DB, userID, orgID)
@@ -131,6 +144,29 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 		if len(conditions) > 0 {
 			query = query.Where("("+strings.Join(conditions, " OR ")+")", args...)
 		}
+	}
+
+	// Filter by channel type(s) for the unified inbox (comma-separated).
+	if channelParam != "" {
+		chList := make([]string, 0)
+		for _, ch := range strings.Split(channelParam, ",") {
+			if ch = strings.TrimSpace(ch); ch != "" {
+				chList = append(chList, ch)
+			}
+		}
+		if len(chList) > 0 {
+			query = query.Where("channel_type IN ?", chList)
+		}
+	}
+
+	// Only conversations with unread inbound messages.
+	if unreadParam == "true" {
+		query = query.Where("is_read = ?", false)
+	}
+
+	// Only conversations assigned to the calling user.
+	if assignedParam == "me" {
+		query = query.Where("assigned_user_id = ?", userID)
 	}
 
 	// Order by last message time (most recent first)
@@ -187,6 +223,7 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 			UnreadCount:        int(unreadCount),
 			AssignedUserID:     c.AssignedUserID,
 			WhatsAppAccount:    c.WhatsAppAccount,
+			ChannelType:        channelTypeOrDefault(c.ChannelType),
 			LastInboundAt:      c.LastInboundAt,
 			ServiceWindowOpen:  serviceWindowOpen,
 			MarketingOptOut:    c.MarketingOptOut,

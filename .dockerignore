@@ -11,6 +11,8 @@ frontend/node_modules
 frontend/dist
 frontend/playwright-report
 frontend/test-results
+apps/panel/node_modules
+apps/panel/dist
 internal/frontend/dist
 uploads
 audio

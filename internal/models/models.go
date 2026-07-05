@@ -348,6 +348,9 @@ type Contact struct {
 	PhoneNumber        string     `gorm:"size:50;not null" json:"phone_number"`
 	ProfileName        string     `gorm:"size:255" json:"profile_name"`
 	WhatsAppAccount    string     `gorm:"size:100;index" json:"whatsapp_account"` // References WhatsAppAccount.Name
+	// ChannelType identifies which messaging channel this conversation belongs to
+	// (whatsapp, instagram, messenger, telegram). Existing rows default to whatsapp.
+	ChannelType        string     `gorm:"size:20;index;default:'whatsapp'" json:"channel_type"`
 	AssignedUserID     *uuid.UUID `gorm:"type:uuid;index" json:"assigned_user_id,omitempty"`
 	LastMessageAt      *time.Time `json:"last_message_at,omitempty"`
 	LastMessagePreview string     `gorm:"type:text" json:"last_message_preview"`
@@ -381,6 +384,9 @@ type Message struct {
 	BaseModel
 	OrganizationID    uuid.UUID     `gorm:"type:uuid;index;not null" json:"organization_id"`
 	WhatsAppAccount   string        `gorm:"size:100;index;not null" json:"whatsapp_account"` // References WhatsAppAccount.Name
+	// ChannelType mirrors the owning contact's channel so message queries can
+	// filter by channel without a join. Existing rows default to whatsapp.
+	ChannelType       string        `gorm:"size:20;index;default:'whatsapp'" json:"channel_type"`
 	ContactID         uuid.UUID     `gorm:"type:uuid;index;not null" json:"contact_id"`
 	WhatsAppMessageID string        `gorm:"column:whats_app_message_id;size:255;index" json:"whatsapp_message_id"`
 	ConversationID    string        `gorm:"size:255;index" json:"conversation_id"`

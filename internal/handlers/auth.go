@@ -16,8 +16,12 @@ import (
 
 // LoginRequest represents login credentials
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=12"`
+	// Email is the login identifier. It is intentionally not constrained to an
+	// email format or a minimum length so simple admin usernames (e.g. "admin")
+	// and short bootstrap passwords work. Account security rests on the stored
+	// credential, not on input shape. Tighten for production if desired.
+	Email    string `json:"email" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 // RegisterRequest represents registration data

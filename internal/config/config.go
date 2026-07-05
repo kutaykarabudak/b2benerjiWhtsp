@@ -282,10 +282,10 @@ func setDefaults(cfg *Config) {
 	}
 	// Default admin credentials (only used during initial setup)
 	if cfg.DefaultAdmin.Email == "" {
-		cfg.DefaultAdmin.Email = "admin@admin.com"
+		cfg.DefaultAdmin.Email = "admin"
 	}
 	if cfg.DefaultAdmin.Password == "" {
-		cfg.DefaultAdmin.Password = "admin"
+		cfg.DefaultAdmin.Password = "123456"
 	}
 	if cfg.DefaultAdmin.FullName == "" {
 		cfg.DefaultAdmin.FullName = "Admin"

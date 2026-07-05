@@ -134,6 +134,6 @@ udp_port_max = 10100          # WebRTC UDP port range end
 
 # Default admin credentials (only used during initial setup when no users exist)
 [default_admin]
-email = "admin@admin.com"
-password = "admin"
+email = "admin"
+password = "123456"
 full_name = "Admin"

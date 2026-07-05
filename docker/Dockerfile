@@ -1,14 +1,16 @@
 # Frontend build stage (output is arch-agnostic JS).
+# Builds the new B2B panel (apps/panel); it is embedded into the Go binary and
+# served at the root of the Cloud Run service.
 FROM node:22-alpine AS frontend-builder
 
-WORKDIR /app/frontend
+WORKDIR /app/panel
 
-# Copy frontend dependency files first for caching
-COPY frontend/package.json frontend/package-lock.json ./
+# Copy dependency files first for caching
+COPY apps/panel/package.json apps/panel/package-lock.json ./
 RUN npm ci
 
-# Copy frontend source and build
-COPY frontend/ .
+# Copy panel source and build
+COPY apps/panel/ .
 RUN npm run build
 
 # Go build stage. Defaults target Cloud Run's linux/amd64 runtime while still
@@ -30,8 +32,8 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Embed frontend build into Go binary
-COPY --from=frontend-builder /app/frontend/dist/ ./internal/frontend/dist/
+# Embed panel build into Go binary
+COPY --from=frontend-builder /app/panel/dist/ ./internal/frontend/dist/
 
 # Build the binary
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -installsuffix cgo -o whatomate ./cmd/whatomate
