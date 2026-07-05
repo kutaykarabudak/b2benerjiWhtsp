@@ -88,7 +88,7 @@ gcloud run deploy "${SERVICE}" \
   --cpu 1 \
   --memory 1Gi \
   --min 1 \
-  --max 3 \
+  --max 1 \
   --concurrency 200 \
   --timeout 3600 \
   --no-cpu-throttling \

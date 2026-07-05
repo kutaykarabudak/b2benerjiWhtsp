@@ -24,6 +24,9 @@ import {
   exchangeToken,
   type EmbeddedSignupConfig
 } from '@/services/embeddedSignup'
+import { getQRStatus, qrConnect, qrLogout, type QRStatus } from '@/services/qr'
+import QRCode from 'qrcode'
+import { onBeforeUnmount } from 'vue'
 
 type Tab = 'users' | 'channels'
 const tab = ref<Tab>('users')
@@ -230,12 +233,56 @@ async function runTest(a: WhatsAppAccount) {
   testResult.value[a.id] = res.ok ? '✓ Bağlantı başarılı' : '✗ ' + (res.message || 'Hata')
 }
 
+// ---- WhatsApp Web (QR) connector ----
+const qr = ref<QRStatus>({ state: 'disconnected' })
+const qrImage = ref('')
+const qrBusy = ref(false)
+let qrTimer: number | undefined
+
+async function refreshQR() {
+  try {
+    qr.value = await getQRStatus()
+    if (qr.value.state === 'qr' && qr.value.qr) {
+      qrImage.value = await QRCode.toDataURL(qr.value.qr, { width: 260, margin: 1 })
+    } else {
+      qrImage.value = ''
+    }
+  } catch {
+    /* sessiz */
+  }
+}
+
+async function startQR() {
+  qrBusy.value = true
+  try {
+    qr.value = await qrConnect()
+    if (qr.value.state === 'qr' && qr.value.qr) {
+      qrImage.value = await QRCode.toDataURL(qr.value.qr, { width: 260, margin: 1 })
+    }
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'QR başlatılamadı.')
+  } finally {
+    qrBusy.value = false
+  }
+}
+
+async function logoutQR() {
+  if (!confirm('WhatsApp Web bağlantısı kesilsin mi? Yeniden QR taramak gerekir.')) return
+  await qrLogout()
+  qrImage.value = ''
+  await refreshQR()
+}
+
 onMounted(() => {
   loadUsers()
   loadAccounts()
   loadMetaSettings()
   initEmbeddedSignup()
+  refreshQR()
+  // Poll so a new QR code / successful pairing shows without a manual refresh.
+  qrTimer = window.setInterval(refreshQR, 3000)
 })
+onBeforeUnmount(() => window.clearInterval(qrTimer))
 </script>
 
 <template>
@@ -342,6 +389,34 @@ onMounted(() => {
         <div class="meta-actions">
           <span v-if="metaMsg" class="meta-msg small">{{ metaMsg }}</span>
           <button class="primary" :disabled="savingMeta" @click="saveMeta">Kaydet</button>
+        </div>
+      </div>
+
+      <!-- WhatsApp Web (QR) — chat + chatbot on a number that stays on the phone -->
+      <div class="card qr-card">
+        <div class="meta-head">
+          <h2>WhatsApp Web (QR) — Sohbet + Chatbot</h2>
+          <span class="muted small">
+            Numaranı telefondaki WhatsApp'tan çıkarmadan bağlar (WhatsApp Web gibi). Sadece sohbet ve chatbot içindir —
+            toplu mesaj için Cloud API kullan.
+          </span>
+        </div>
+
+        <div v-if="qr.state === 'connected'" class="qr-connected">
+          🟢 Bağlı{{ qr.phone ? ' · +' + qr.phone : '' }}
+          <button class="danger-btn" @click="logoutQR">Bağlantıyı Kes</button>
+        </div>
+
+        <div v-else class="qr-connect">
+          <div v-if="qrImage" class="qr-box">
+            <img :src="qrImage" alt="QR" width="220" height="220" />
+            <p class="muted small">
+              Telefonda <b>WhatsApp Business → Ayarlar → Bağlı cihazlar → Cihaz bağla</b> ile bu kodu tara.
+            </p>
+          </div>
+          <button v-else class="primary" :disabled="qrBusy" @click="startQR">
+            {{ qrBusy ? 'Başlatılıyor…' : '📱 QR ile Bağla' }}
+          </button>
         </div>
       </div>
 
@@ -462,6 +537,11 @@ onMounted(() => {
 .section-head h2 { font-size: 16px; margin: 0; }
 .head-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .meta-card { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
+.qr-card { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
+.qr-connected { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.qr-connect { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.qr-box { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.qr-box img { border: 1px solid var(--border); border-radius: 8px; }
 .meta-head { display: flex; flex-direction: column; gap: 2px; }
 .meta-head h2 { font-size: 16px; margin: 0; }
 .meta-actions { display: flex; justify-content: flex-end; align-items: center; gap: 12px; }

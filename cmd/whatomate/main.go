@@ -252,6 +252,16 @@ func runServer(args []string) {
 		lo.Error("Failed to start campaign stats subscriber", "error", err)
 	}
 
+	// Initialise the WhatsApp Web (QR) connector. Best-effort: a failure here
+	// must not stop the server (Cloud API features keep working without it).
+	go func() {
+		if err := app.InitQR(context.Background()); err != nil {
+			lo.Error("Failed to initialise QR connector", "error", err)
+		} else {
+			lo.Info("QR connector initialised")
+		}
+	}()
+
 	// Parse allowed origins for CORS
 	allowedOrigins := middleware.ParseAllowedOrigins(cfg.Server.AllowedOrigins)
 
@@ -644,6 +654,11 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.POST("/api/api-keys", app.CreateAPIKey)
 	g.PUT("/api/api-keys/{id}", app.UpdateAPIKey)
 	g.DELETE("/api/api-keys/{id}", app.DeleteAPIKey)
+
+	// WhatsApp Web (QR) connector
+	g.GET("/api/qr/status", app.QRStatus)
+	g.POST("/api/qr/connect", app.QRConnect)
+	g.POST("/api/qr/logout", app.QRLogout)
 
 	// Accounts
 	g.GET("/api/accounts", app.ListAccounts)

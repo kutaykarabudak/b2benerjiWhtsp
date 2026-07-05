@@ -14,6 +14,7 @@ import (
 	"github.com/shridarpatil/whatomate/internal/queue"
 	"github.com/shridarpatil/whatomate/internal/storage"
 	"github.com/shridarpatil/whatomate/internal/tts"
+	"github.com/shridarpatil/whatomate/internal/waqr"
 	"github.com/shridarpatil/whatomate/internal/websocket"
 	"github.com/shridarpatil/whatomate/pkg/whatsapp"
 	"github.com/valyala/fasthttp"
@@ -42,6 +43,9 @@ type App struct {
 	TTS *tts.PiperTTS
 	// S3Client for serving call recording presigned URLs (nil when not configured)
 	S3Client *storage.S3Client
+	// QR is the unofficial WhatsApp Web (whatsmeow) connector used for 1:1 chat +
+	// chatbot on a number that stays on the phone. nil until initialised.
+	QR *waqr.Manager
 	// wg tracks background goroutines for graceful shutdown
 	wg sync.WaitGroup
 }
