@@ -11,6 +11,7 @@ const email = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
+const showForgot = ref(false)
 
 async function submit() {
   error.value = ''
@@ -44,6 +45,14 @@ async function submit() {
       <button class="primary" type="submit" :disabled="loading">
         {{ loading ? 'Giriş yapılıyor…' : 'Giriş Yap' }}
       </button>
+
+      <button type="button" class="forgot-link" @click="showForgot = !showForgot">
+        Şifremi unuttum?
+      </button>
+      <div v-if="showForgot" class="forgot-box muted">
+        Şifreni yöneticin sıfırlayabilir: <b>Yönetim → Kullanıcılar → Şifre Sıfırla</b>.
+        Yönetici sensen, admin hesabınla girip kendi/kullanıcı şifrelerini oradan sıfırlayabilirsin.
+      </div>
     </form>
   </div>
 </template>
@@ -55,6 +64,8 @@ async function submit() {
   place-items: center;
   padding: 24px;
 }
+.forgot-link { background: transparent; border: none; color: var(--brand); font-size: 13px; margin-top: 10px; padding: 4px; cursor: pointer; align-self: center; }
+.forgot-box { font-size: 13px; line-height: 1.5; margin-top: 4px; padding: 10px; background: var(--bg); border-radius: var(--radius); }
 .login-card {
   width: 100%;
   max-width: 360px;

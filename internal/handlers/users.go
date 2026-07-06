@@ -797,6 +797,48 @@ func (a *App) ChangePassword(r *fastglue.Request) error {
 	return r.SendEnvelope(map[string]string{"message": "Password changed successfully"})
 }
 
+// ResetUserPassword lets an admin (users:write) set a new password for another
+// user without knowing the old one. Used as the "forgot password" recovery path
+// since the deployment has no email/SMTP for self-service reset links.
+func (a *App) ResetUserPassword(r *fastglue.Request) error {
+	orgID, _, err := a.requireAuth(r, models.ResourceUsers, models.ActionWrite)
+	if err != nil {
+		return nil
+	}
+	targetID, err := parsePathUUID(r, "id", "user")
+	if err != nil {
+		return nil
+	}
+
+	var req struct {
+		NewPassword string `json:"new_password"`
+	}
+	if err := a.decodeRequest(r, &req); err != nil {
+		return nil
+	}
+	if len(req.NewPassword) < 6 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "New password must be at least 6 characters", nil, "")
+	}
+
+	// Ensure the target user belongs to the caller's organization.
+	var user models.User
+	if err := a.DB.Where("id = ? AND organization_id = ?", targetID, orgID).First(&user).Error; err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "User not found", nil, "")
+	}
+
+	hashed, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		a.Log.Error("Failed to hash password", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to reset password", nil, "")
+	}
+	user.PasswordHash = string(hashed)
+	if err := a.DB.Save(&user).Error; err != nil {
+		a.Log.Error("Failed to reset password", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to reset password", nil, "")
+	}
+	return r.SendEnvelope(map[string]string{"message": "Password reset successfully"})
+}
+
 // Helper function to convert User to UserResponse
 // userAuditSnapshot returns a minimal, diff-friendly representation of a user
 // for audit logging. Sensitive fields (password hash) and noisy fields (settings,

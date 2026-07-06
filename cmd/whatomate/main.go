@@ -636,6 +636,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	// User Management (admin only - enforced by middleware)
 	g.GET("/api/users", app.ListUsers)
 	g.POST("/api/users", app.CreateUser)
+	g.POST("/api/users/{id}/reset-password", app.ResetUserPassword)
 	g.GET("/api/users/{id}", app.GetUser)
 	g.PUT("/api/users/{id}", app.UpdateUser)
 	g.DELETE("/api/users/{id}", app.DeleteUser)

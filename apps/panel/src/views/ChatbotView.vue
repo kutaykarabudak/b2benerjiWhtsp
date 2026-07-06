@@ -144,6 +144,20 @@ onMounted(load)
       <button class="primary" @click="startCreate">＋ Yeni Kural</button>
     </header>
 
+    <!-- How it works -->
+    <div class="card explainer">
+      <b>Nasıl çalışır?</b>
+      <ol>
+        <li>Bir <b>anahtar kelime</b> belirlersin (ör. "merhaba", "fiyat").</li>
+        <li>Müşteri o kelimeyi yazınca panel <b>otomatik yanıt</b> gönderir.</li>
+        <li>İstersen yanıta <b>çoktan seçmeli butonlar</b> eklersin (ör. [Fiyat] [Sipariş]) — <span class="muted">sadece Cloud API kanalında</span>.</li>
+        <li>Butona basınca gelen yazı (buton başlığı) yeni bir kuralı tetikler → böylece <b>menü akışı</b> kurulur.</li>
+      </ol>
+      <div class="example muted">
+        Örnek: "merhaba" → "Nasıl yardımcı olalım?" + [Fiyat] [Destek] &nbsp;·&nbsp; sonra "Fiyat" → "Fiyat listemiz…"
+      </div>
+    </div>
+
     <!-- Editor -->
     <form v-if="editing" class="card editor" @submit.prevent="save">
       <div class="row">
@@ -261,6 +275,9 @@ onMounted(load)
 .add-btn { align-self: flex-start; }
 .rule-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .btn-chip { font-size: 12px; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--brand); color: var(--brand); background: #fff; }
+.explainer { margin-bottom: 16px; font-size: 14px; }
+.explainer ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; }
+.example { margin-top: 10px; font-size: 13px; padding: 8px 10px; background: var(--bg); border-radius: var(--radius); }
 .rule-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .switch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .switch input { width: auto; }

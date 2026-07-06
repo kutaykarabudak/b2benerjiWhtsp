@@ -5,6 +5,7 @@ import {
   createUser,
   setUserActive,
   deleteUser,
+  resetUserPassword,
   listRoles,
   listAccounts,
   createAccount,
@@ -90,6 +91,21 @@ async function removeUser(u: User) {
   if (!confirm(`${u.email} silinsin mi?`)) return
   await deleteUser(u.id)
   await loadUsers()
+}
+
+async function resetPassword(u: User) {
+  const pw = prompt(`${u.email} için yeni şifre (en az 6 karakter):`)
+  if (!pw) return
+  if (pw.length < 6) {
+    alert('Şifre en az 6 karakter olmalı.')
+    return
+  }
+  try {
+    await resetUserPassword(u.id, pw)
+    alert('Şifre sıfırlandı.')
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Şifre sıfırlanamadı.')
+  }
 }
 
 // ---- Channels ----
@@ -352,6 +368,7 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
                 {{ u.is_active ? 'Aktif' : 'Pasif' }}
               </td>
               <td class="right">
+                <button @click="resetPassword(u)">Şifre Sıfırla</button>
                 <button @click="toggleUser(u)">{{ u.is_active ? 'Pasifleştir' : 'Aktifleştir' }}</button>
                 <button class="danger-btn" @click="removeUser(u)">Sil</button>
               </td>
@@ -363,7 +380,18 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
 
     <!-- Channels tab -->
     <section v-if="tab === 'channels'">
-      <!-- Meta App integration (portable: entered here, not in backend config) -->
+      <!-- What is a channel -->
+      <div class="card ch-intro">
+        <b>Kanal nedir?</b> Konuşmaları yürütmek için bir WhatsApp numarası bağlarsın. İki yol var:
+        <ul class="ch-ways">
+          <li><b>WhatsApp Cloud API</b> (önerilen) — resmi. Toplu mesaj + çoktan seçmeli butonlar + şablonlar çalışır. Numara panele taşınır (telefondan çıkar). Aşağıdan <b>＋ Numara Ekle</b>.</li>
+          <li><b>WhatsApp Web (QR)</b> — numara telefonda kalır. Sadece sohbet + chatbot (buton/toplu mesaj yok).</li>
+        </ul>
+      </div>
+
+      <!-- Advanced Meta App settings (only needed for Embedded Signup) -->
+      <details class="advanced">
+        <summary>Gelişmiş: Meta App / Embedded Signup ayarları (çoğu durumda gerekmez)</summary>
       <div class="card meta-card">
         <div class="meta-head">
           <h2>Meta App Entegrasyonu</h2>
@@ -391,6 +419,11 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           <button class="primary" :disabled="savingMeta" @click="saveMeta">Kaydet</button>
         </div>
       </div>
+        <p class="muted small adv-note">
+          Bu bölüm sadece yeşil "tek tık" Embedded Signup bağlama içindir ve Meta <b>Tech Provider</b> onayı gerektirir.
+          Onayın yoksa aşağıdaki <b>＋ Numara Ekle</b> (manuel) yolunu kullan.
+        </p>
+      </details>
 
       <!-- WhatsApp Web (QR) — chat + chatbot on a number that stays on the phone -->
       <div class="card qr-card">
@@ -421,19 +454,23 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
       </div>
 
       <div class="section-head">
-        <h2>Kanallar (WhatsApp Business API)</h2>
+        <h2>WhatsApp Numarası (Cloud API)</h2>
         <div class="head-actions">
           <button
             v-if="esConfig"
-            class="primary"
             :disabled="connecting"
             @click="connectWhatsApp"
           >
-            {{ connecting ? 'Bağlanıyor…' : '🟢 WhatsApp Business Hesabını Bağla' }}
+            {{ connecting ? 'Bağlanıyor…' : '🟢 Tek Tık Bağla' }}
           </button>
-          <button @click="showAccountForm = !showAccountForm">Manuel Ekle</button>
+          <button class="primary" @click="showAccountForm = !showAccountForm">＋ Numara Ekle</button>
         </div>
       </div>
+      <p class="ch-help muted small">
+        Meta → uygulaman → <b>WhatsApp → API Setup</b>'tan <b>Phone number ID</b>,
+        <b>WhatsApp Business Account ID</b> (= Business ID) ve <b>Access token</b> alıp <b>＋ Numara Ekle</b> ile gir.
+        Birden fazla numara ekleyebilirsin.
+      </p>
 
       <div v-if="esConfig" class="coexistence-note muted small">
         <label class="cox-toggle">
@@ -448,10 +485,6 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           <b>"WhatsApp Embedded Signup Configuration"</b> template'inden oluşturulmuş olması gerekir.
         </div>
       </div>
-      <div v-else class="coexistence-note muted small">
-        Embedded Signup yapılandırılmamış (config.toml → <code>[whatsapp] app_id, config_id</code>).
-        Bağla butonu için Meta App ID ve Configuration ID gerekir. Şimdilik aşağıdan manuel ekleyebilirsin.
-      </div>
       <div v-if="connectMsg" class="card connect-msg">{{ connectMsg }}</div>
 
       <form v-if="showAccountForm" class="card form" @submit.prevent="submitAccount">
@@ -461,22 +494,22 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
             <input v-model="accountForm.name" placeholder="Ör. Ana Hat" />
           </div>
           <div class="field grow">
-            <label>Phone ID *</label>
+            <label>Phone ID * <span class="muted small">(API Setup → Phone number ID)</span></label>
             <input v-model="accountForm.phone_id" />
           </div>
         </div>
         <div class="row">
           <div class="field grow">
-            <label>Business ID *</label>
+            <label>Business ID * <span class="muted small">(WhatsApp Business Account ID)</span></label>
             <input v-model="accountForm.business_id" />
           </div>
           <div class="field grow">
-            <label>App ID</label>
+            <label>App ID <span class="muted small">(opsiyonel)</span></label>
             <input v-model="accountForm.app_id" />
           </div>
         </div>
         <div class="field">
-          <label>Access Token *</label>
+          <label>Access Token * <span class="muted small">(API Setup → token)</span></label>
           <input v-model="accountForm.access_token" type="password" />
         </div>
         <div class="row">
@@ -536,6 +569,14 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
 .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 12px; }
 .section-head h2 { font-size: 16px; margin: 0; }
 .head-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.ch-intro { margin-bottom: 16px; font-size: 14px; line-height: 1.6; }
+.ch-ways { margin: 8px 0 0; padding-left: 20px; }
+.ch-ways li { margin-bottom: 6px; }
+.ch-help { margin: -6px 0 14px; line-height: 1.5; }
+.advanced { margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 12px; background: var(--panel); }
+.advanced summary { cursor: pointer; padding: 8px 0; font-size: 14px; color: var(--muted); }
+.advanced .meta-card { margin: 8px 0; }
+.adv-note { margin: 0 0 10px; line-height: 1.5; }
 .meta-card { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
 .qr-card { margin-bottom: 20px; display: flex; flex-direction: column; gap: 12px; }
 .qr-connected { display: flex; align-items: center; gap: 12px; font-weight: 600; }

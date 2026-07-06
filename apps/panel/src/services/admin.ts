@@ -51,6 +51,11 @@ export async function deleteUser(id: string): Promise<void> {
   await api.delete(`/users/${id}`)
 }
 
+// Admin sets a new password for a user (forgot-password recovery path).
+export async function resetUserPassword(id: string, newPassword: string): Promise<void> {
+  await api.post(`/users/${id}/reset-password`, { new_password: newPassword })
+}
+
 export async function listRoles(): Promise<Role[]> {
   const res = await api.get('/roles', { params: { limit: '100' } })
   return res.data?.roles ?? []
