@@ -111,6 +111,10 @@ type ServerConfig struct {
 	WriteTimeout   int    `koanf:"write_timeout"`
 	BasePath       string `koanf:"base_path"`       // Base path for frontend (e.g., "/whatomate" for proxy pass)
 	AllowedOrigins string `koanf:"allowed_origins"` // Comma-separated list of allowed CORS origins
+	// WSPublicURL is the externally reachable base URL for WebSockets. Needed
+	// when the frontend is served from a host that can't proxy WS (e.g. Firebase
+	// Hosting): the panel then connects WS directly to this URL. Empty = same origin.
+	WSPublicURL string `koanf:"ws_public_url"`
 }
 
 type DatabaseConfig struct {

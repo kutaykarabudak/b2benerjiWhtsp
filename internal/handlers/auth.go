@@ -583,5 +583,5 @@ func (a *App) GetWSToken(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to generate token", nil, "")
 	}
 
-	return r.SendEnvelope(map[string]string{"token": signed})
+	return r.SendEnvelope(map[string]string{"token": signed, "ws_url": a.Config.Server.WSPublicURL})
 }

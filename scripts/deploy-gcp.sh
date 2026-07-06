@@ -65,6 +65,13 @@ if [[ -n "${META_CONFIG_ID:-}" ]]; then
   ENV_VARS+="~WHATOMATE_WHATSAPP__CONFIG_ID=${META_CONFIG_ID}"
 fi
 
+# Firebase Hosting can't proxy WebSockets, so tell the frontend to connect WS
+# directly to the Cloud Run service URL (stable across revisions).
+WS_PUBLIC_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)' 2>/dev/null || true)"
+if [[ -n "${WS_PUBLIC_URL}" ]]; then
+  ENV_VARS+="~WHATOMATE_SERVER__WS_PUBLIC_URL=${WS_PUBLIC_URL}"
+fi
+
 SECRETS="WHATOMATE_APP__ENCRYPTION_KEY=whatomate-encryption-key:latest,WHATOMATE_JWT__SECRET=whatomate-jwt-secret:latest,WHATOMATE_DATABASE__PASSWORD=whatomate-db-password:latest,WHATOMATE_DEFAULT_ADMIN__PASSWORD=whatomate-admin-password:latest"
 if gcloud secrets describe whatomate-redis-password >/dev/null 2>&1; then
   SECRETS+=",WHATOMATE_REDIS__PASSWORD=whatomate-redis-password:latest"

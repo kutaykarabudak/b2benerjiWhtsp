@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import {
   listConversations,
   getMessages,
@@ -9,9 +9,9 @@ import {
   type Message,
   type ChannelType
 } from '@/services/inbox'
+import { createRealtime } from '@/services/ws'
 
-// Channel presentation. Only whatsapp is live today; the rest are shown so the
-// filter bar reflects the omnichannel model as adapters come online.
+// Channel presentation.
 const CHANNELS: { type: ChannelType; label: string; icon: string }[] = [
   { type: 'whatsapp', label: 'WhatsApp', icon: '🟢' },
   { type: 'instagram', label: 'Instagram', icon: '📸' },
@@ -23,7 +23,6 @@ const conversations = ref<Conversation[]>([])
 const loadingList = ref(false)
 const listError = ref('')
 
-// Filters
 const activeChannel = ref<ChannelType | 'all'>('all')
 const unreadOnly = ref(false)
 const assignedToMe = ref(false)
@@ -34,8 +33,10 @@ const messages = ref<Message[]>([])
 const loadingMessages = ref(false)
 const draft = ref('')
 const sending = ref(false)
+const messagesEl = ref<HTMLElement | null>(null)
 
-let messagesTimer: number | undefined
+let realtime: { close(): void } | null = null
+let fallbackTimer: number | undefined
 let searchTimer: number | undefined
 
 function channelMeta(t: ChannelType) {
@@ -52,6 +53,11 @@ async function loadConversations() {
       assigned: assignedToMe.value ? 'me' : undefined,
       search: search.value.trim() || undefined
     })
+    // Keep the selected conversation's row reference in sync (preview/unread).
+    if (selected.value) {
+      const fresh = conversations.value.find((c) => c.id === selected.value!.id)
+      if (fresh) selected.value = fresh
+    }
   } catch {
     listError.value = 'Konuşmalar yüklenemedi.'
   } finally {
@@ -62,18 +68,29 @@ async function loadConversations() {
 async function openConversation(c: Conversation) {
   selected.value = c
   await loadMessages()
-  // Opening the thread marks it read on the server; reflect that locally.
   c.unread_count = 0
 }
 
-async function loadMessages() {
+function backToList() {
+  selected.value = null
+}
+
+async function loadMessages(scroll = true) {
   if (!selected.value) return
   loadingMessages.value = true
   try {
     messages.value = await getMessages(selected.value.id)
+    if (scroll) scrollToBottom()
   } finally {
     loadingMessages.value = false
   }
+}
+
+function scrollToBottom() {
+  nextTick(() => {
+    const el = messagesEl.value
+    if (el) el.scrollTop = el.scrollHeight
+  })
 }
 
 async function send() {
@@ -97,7 +114,21 @@ const conversationTitle = computed(() => {
   return c.name || c.profile_name || c.phone_number
 })
 
-// Re-fetch the list when filters change (search is debounced).
+// Realtime: react to server push. Reload is cheap and always correct.
+function onRealtime(ev: { type: string; payload: any }) {
+  if (ev.type === 'new_message') {
+    loadConversations()
+    const cid = ev.payload?.contact_id
+    if (selected.value && cid && String(cid) === String(selected.value.id)) {
+      loadMessages()
+    }
+  } else if (ev.type === 'status_update') {
+    if (selected.value) loadMessages(false)
+  } else if (ev.type === 'contact_update') {
+    loadConversations()
+  }
+}
+
 watch([activeChannel, unreadOnly, assignedToMe], loadConversations)
 watch(search, () => {
   window.clearTimeout(searchTimer)
@@ -106,13 +137,16 @@ watch(search, () => {
 
 onMounted(() => {
   loadConversations()
-  // Light polling keeps the open thread fresh without a WebSocket for now.
-  messagesTimer = window.setInterval(() => {
-    if (selected.value && !loadingMessages.value) loadMessages()
-  }, 8000)
+  realtime = createRealtime(onRealtime)
+  // Safety net if WebSocket can't get through (e.g. some proxies): periodic sync.
+  fallbackTimer = window.setInterval(() => {
+    loadConversations()
+    if (selected.value && !loadingMessages.value) loadMessages(false)
+  }, 15000)
 })
 onBeforeUnmount(() => {
-  window.clearInterval(messagesTimer)
+  realtime?.close()
+  window.clearInterval(fallbackTimer)
   window.clearTimeout(searchTimer)
 })
 
@@ -124,7 +158,7 @@ function fmtTime(iso: string | null): string {
 </script>
 
 <template>
-  <div class="inbox">
+  <div class="inbox" :class="{ 'chat-open': !!selected }">
     <!-- Top filter bar -->
     <div class="filterbar">
       <div class="chips">
@@ -135,7 +169,7 @@ function fmtTime(iso: string | null): string {
           :class="['chip', { on: activeChannel === ch.type }]"
           @click="activeChannel = ch.type"
         >
-          {{ ch.icon }} {{ ch.label }}
+          {{ ch.icon }} <span class="chip-label">{{ ch.label }}</span>
         </button>
       </div>
       <div class="filters-right">
@@ -148,7 +182,7 @@ function fmtTime(iso: string | null): string {
     <div class="body">
       <!-- Conversation list -->
       <div class="list">
-        <div v-if="loadingList" class="hint muted">Yükleniyor…</div>
+        <div v-if="loadingList && !conversations.length" class="hint muted">Yükleniyor…</div>
         <div v-else-if="listError" class="hint error">{{ listError }}</div>
         <div v-else-if="!conversations.length" class="hint muted">Konuşma yok.</div>
         <button
@@ -157,16 +191,19 @@ function fmtTime(iso: string | null): string {
           :class="['conv', { active: selected?.id === c.id }]"
           @click="openConversation(c)"
         >
-          <div class="conv-top">
-            <span class="conv-name">{{ c.name || c.profile_name || c.phone_number }}</span>
-            <span class="conv-time muted">{{ fmtTime(c.last_message_at) }}</span>
-          </div>
-          <div class="conv-bottom">
-            <span class="conv-preview muted">
-              <span class="ch-icon">{{ channelMeta(c.channel_type).icon }}</span>
-              {{ c.last_message_preview || '—' }}
-            </span>
-            <span v-if="c.unread_count" class="badge">{{ c.unread_count }}</span>
+          <div class="avatar">{{ (c.name || c.profile_name || c.phone_number || '?').charAt(0).toUpperCase() }}</div>
+          <div class="conv-main">
+            <div class="conv-top">
+              <span class="conv-name">{{ c.name || c.profile_name || c.phone_number }}</span>
+              <span class="conv-time muted">{{ fmtTime(c.last_message_at) }}</span>
+            </div>
+            <div class="conv-bottom">
+              <span class="conv-preview muted">
+                <span class="ch-icon">{{ channelMeta(c.channel_type).icon }}</span>
+                {{ c.last_message_preview || '—' }}
+              </span>
+              <span v-if="c.unread_count" class="badge">{{ c.unread_count }}</span>
+            </div>
           </div>
         </button>
       </div>
@@ -175,7 +212,9 @@ function fmtTime(iso: string | null): string {
       <div class="chat">
         <template v-if="selected">
           <div class="chat-head">
-            <div>
+            <button class="back-btn" @click="backToList" aria-label="Geri">←</button>
+            <div class="avatar sm">{{ conversationTitle.charAt(0).toUpperCase() }}</div>
+            <div class="chat-head-info">
               <div class="chat-title">{{ conversationTitle }}</div>
               <div class="muted small">
                 {{ channelMeta(selected.channel_type).icon }} {{ channelMeta(selected.channel_type).label }}
@@ -183,11 +222,11 @@ function fmtTime(iso: string | null): string {
               </div>
             </div>
             <span v-if="!selected.service_window_open && selected.channel_type === 'whatsapp'" class="window-closed">
-              24s penceresi kapalı
+              24s kapalı
             </span>
           </div>
 
-          <div class="messages">
+          <div ref="messagesEl" class="messages">
             <div v-if="loadingMessages && !messages.length" class="hint muted">Yükleniyor…</div>
             <div
               v-for="m in messages"
@@ -203,7 +242,7 @@ function fmtTime(iso: string | null): string {
 
           <form class="composer" @submit.prevent="send">
             <input v-model="draft" placeholder="Mesaj yazın…" autocomplete="off" />
-            <button class="primary" type="submit" :disabled="sending || !draft.trim()">Gönder</button>
+            <button class="primary send-btn" type="submit" :disabled="sending || !draft.trim()">Gönder</button>
           </form>
         </template>
         <div v-else class="empty muted">Görüntülemek için bir konuşma seçin.</div>
@@ -216,14 +255,8 @@ function fmtTime(iso: string | null): string {
 .inbox { display: flex; flex-direction: column; height: 100%; }
 
 .filterbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
 }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .chip { padding: 6px 12px; border-radius: 999px; font-size: 13px; }
@@ -235,56 +268,60 @@ function fmtTime(iso: string | null): string {
 
 .body { flex: 1; display: flex; min-height: 0; }
 
-.list {
-  width: 320px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--border);
-  background: var(--panel);
-  overflow-y: auto;
-}
+.list { width: 340px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--panel); overflow-y: auto; }
 .hint { padding: 20px; text-align: center; }
 .conv {
-  width: 100%;
-  text-align: left;
-  border: none;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--border);
+  border-radius: 0; background: transparent; padding: 10px 14px; display: flex; align-items: center; gap: 12px;
 }
 .conv:hover { background: var(--bg); }
 .conv.active { background: var(--bg); box-shadow: inset 3px 0 0 var(--brand); }
+.avatar {
+  width: 42px; height: 42px; border-radius: 50%; background: var(--brand); color: #fff;
+  display: grid; place-items: center; font-weight: 700; flex-shrink: 0; font-size: 17px;
+}
+.avatar.sm { width: 34px; height: 34px; font-size: 14px; }
+.conv-main { flex: 1; min-width: 0; }
 .conv-top, .conv-bottom { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .conv-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-time { font-size: 11px; flex-shrink: 0; }
-.conv-preview { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-preview { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-icon { margin-right: 2px; }
-.badge {
-  background: var(--brand); color: #fff; font-size: 11px; font-weight: 600;
-  border-radius: 999px; padding: 1px 7px; flex-shrink: 0;
-}
+.badge { background: var(--brand); color: #fff; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; flex-shrink: 0; }
 
-.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #efeae2; }
 .empty { margin: auto; }
 .chat-head {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
 }
+.chat-head-info { flex: 1; min-width: 0; }
 .chat-title { font-weight: 600; }
 .small { font-size: 12px; }
 .window-closed { font-size: 12px; color: var(--danger); }
+.back-btn { display: none; border: none; background: transparent; font-size: 22px; padding: 0 4px; line-height: 1; }
 
-.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
 .msg { display: flex; }
 .msg.out { justify-content: flex-end; }
-.bubble { max-width: 68%; padding: 8px 11px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border); }
-.msg.out .bubble { background: #d9fdd3; border-color: #cdeec7; }
+.bubble { max-width: 72%; padding: 7px 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 0.5px rgba(0,0,0,0.08); }
+.msg.out .bubble { background: #d9fdd3; }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
 
-.composer { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel); }
+.composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .composer input { flex: 1; }
+
+/* --- Mobile: WhatsApp-style single column --- */
+@media (max-width: 768px) {
+  .list { width: 100%; }
+  .chat { display: none; }
+  .inbox.chat-open .list { display: none; }
+  .inbox.chat-open .filterbar { display: none; }
+  .inbox.chat-open .chat { display: flex; }
+  .back-btn { display: inline-flex; }
+  .filters-right { width: 100%; }
+  .search { flex: 1; width: auto; }
+  .chip-label { display: none; }
+}
 </style>
