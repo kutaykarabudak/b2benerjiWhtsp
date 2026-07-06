@@ -79,6 +79,16 @@ export async function markRead(contactId: string): Promise<void> {
   await api.post(`/contacts/${contactId}/mark-read`)
 }
 
+// Sends the user's current location (Cloud API channels only).
+export async function sendLocation(
+  contactId: string,
+  latitude: number,
+  longitude: number,
+  name = ''
+): Promise<void> {
+  await api.post(`/contacts/${contactId}/location`, { latitude, longitude, name })
+}
+
 // Sends an image (or other media) via the multipart media endpoint.
 export async function sendMedia(
   contactId: string,

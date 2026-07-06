@@ -7,6 +7,7 @@ import {
   sendText,
   sendButtons,
   sendMedia,
+  sendLocation,
   messageBody,
   type Conversation,
   type Message,
@@ -47,6 +48,32 @@ const buttonMode = ref(false)
 const btnBody = ref('')
 const btnTitles = ref<string[]>([''])
 const canUseButtons = computed(() => selected.value?.channel_type === 'whatsapp')
+
+function shareLocation() {
+  if (!selected.value) return
+  if (!navigator.geolocation) {
+    alert('Cihaz konum desteklemiyor.')
+    return
+  }
+  sending.value = true
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      try {
+        await sendLocation(selected.value!.id, pos.coords.latitude, pos.coords.longitude)
+        await loadMessages()
+      } catch (err: any) {
+        alert(err?.response?.data?.message || 'Konum gönderilemedi.')
+      } finally {
+        sending.value = false
+      }
+    },
+    (err) => {
+      sending.value = false
+      alert('Konum alınamadı: ' + err.message)
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  )
+}
 
 const fileInput = ref<HTMLInputElement | null>(null)
 async function onImageChosen(e: Event) {
@@ -308,7 +335,17 @@ function fmtTime(iso: string | null): string {
             >
               <div class="bubble">
                 <img v-if="m.media_url && m.message_type === 'image'" :src="m.media_url" class="bubble-img" />
-                <div v-if="messageBody(m) || m.interactive_data?.body || m.message_type !== 'image'" class="bubble-text">
+                <a
+                  v-else-if="m.message_type === 'location'"
+                  :href="messageBody(m)"
+                  target="_blank"
+                  rel="noopener"
+                  class="bubble-loc"
+                >📍 Konumu haritada aç</a>
+                <div
+                  v-else-if="messageBody(m) || m.interactive_data?.body || m.message_type !== 'image'"
+                  class="bubble-text"
+                >
                   {{ messageBody(m) || m.interactive_data?.body || (m.message_type === 'image' ? '' : '[' + m.message_type + ']') }}
                 </div>
                 <div v-if="m.interactive_data?.buttons?.length" class="bubble-buttons">
@@ -342,6 +379,15 @@ function fmtTime(iso: string | null): string {
               📎
             </button>
             <input ref="fileInput" type="file" accept="image/*" hidden @change="onImageChosen" />
+            <button
+              v-if="canUseButtons"
+              type="button"
+              class="btn-toggle"
+              title="Anlık konum gönder"
+              @click="shareLocation"
+            >
+              📍
+            </button>
             <button
               v-if="canUseButtons"
               type="button"
@@ -417,6 +463,7 @@ function fmtTime(iso: string | null): string {
 .bubble { max-width: 72%; padding: 7px 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 0.5px rgba(0,0,0,0.08); }
 .msg.out .bubble { background: #d9fdd3; }
 .bubble-img { max-width: 240px; max-height: 240px; border-radius: 6px; display: block; margin-bottom: 4px; }
+.bubble-loc { color: #027eb5; text-decoration: none; font-weight: 600; }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
 .bubble-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 6px; }

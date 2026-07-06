@@ -48,6 +48,33 @@ func (c *Client) SendTextMessage(ctx context.Context, account *Account, rcpt Rec
 	return messageID, nil
 }
 
+// SendLocationMessage sends a location pin (latitude/longitude, optional label).
+func (c *Client) SendLocationMessage(ctx context.Context, account *Account, rcpt Recipient, latitude, longitude float64, name, address string) (string, error) {
+	loc := map[string]any{
+		"latitude":  latitude,
+		"longitude": longitude,
+	}
+	if name != "" {
+		loc["name"] = name
+	}
+	if address != "" {
+		loc["address"] = address
+	}
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"type":              "location",
+		"location":          loc,
+	}
+	rcpt.SetOnPayload(payload)
+
+	respBody, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to send location message: %w", err)
+	}
+	return parseMessageID(respBody)
+}
+
 // SendInteractiveButtons sends an interactive message with buttons or list
 // If buttons <= 3, sends as buttons; if 4-10, sends as list
 func (c *Client) SendInteractiveButtons(ctx context.Context, account *Account, rcpt Recipient, bodyText string, buttons []Button) (string, error) {
