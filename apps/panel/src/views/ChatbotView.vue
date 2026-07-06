@@ -35,9 +35,17 @@ function blankForm() {
     keywordsText: '',
     match_type: 'contains' as MatchType,
     reply: '',
+    buttons: [] as { id: string; title: string }[],
     priority: 10,
     enabled: true
   }
+}
+
+function addButton() {
+  if (form.value.buttons.length < 3) form.value.buttons.push({ id: '', title: '' })
+}
+function removeButton(i: number) {
+  form.value.buttons.splice(i, 1)
 }
 
 async function load() {
@@ -62,6 +70,9 @@ function startEdit(r: KeywordRule) {
     keywordsText: (r.keywords || []).join(', '),
     match_type: r.match_type,
     reply: r.response_content?.body ?? '',
+    buttons: Array.isArray((r.response_content as any)?.buttons)
+      ? (r.response_content as any).buttons.map((b: any) => ({ id: b.id ?? b.title, title: b.title ?? '' }))
+      : [],
     priority: r.priority,
     enabled: r.enabled
   }
@@ -88,6 +99,7 @@ async function save() {
     keywords,
     match_type: form.value.match_type,
     reply: form.value.reply.trim(),
+    buttons: form.value.buttons.filter((b) => b.title.trim()),
     priority: Number(form.value.priority) || 10,
     enabled: form.value.enabled
   }
@@ -161,6 +173,22 @@ onMounted(load)
         <label>Otomatik yanıt</label>
         <textarea v-model="form.reply" rows="3" placeholder="Merhaba! Size nasıl yardımcı olabiliriz?"></textarea>
       </div>
+
+      <div class="field">
+        <label>
+          Butonlar (çoktan seçmeli · en fazla 3)
+          <span class="muted small">— sadece Cloud API kanalında çalışır (QR'da yok)</span>
+        </label>
+        <div v-for="(btn, i) in form.buttons" :key="i" class="btn-row">
+          <input v-model="btn.title" maxlength="20" placeholder="Buton yazısı (ör. Fiyat)" />
+          <button type="button" class="danger-btn" @click="removeButton(i)">✕</button>
+        </div>
+        <button v-if="form.buttons.length < 3" type="button" class="add-btn" @click="addButton">＋ Buton ekle</button>
+        <p class="muted small">
+          İpucu: butona basınca gelen yazı (buton başlığı) bir sonraki kurala anahtar kelime olur.
+          Ör. "Fiyat" butonu → anahtar kelimesi "Fiyat" olan başka bir kural yanıt verir.
+        </p>
+      </div>
       <label class="enable"><input type="checkbox" v-model="form.enabled" /> Aktif</label>
       <p v-if="formError" class="error">{{ formError }}</p>
       <div class="form-actions">
@@ -184,6 +212,9 @@ onMounted(load)
           <span v-for="k in r.keywords" :key="k" class="chip">{{ k }}</span>
         </div>
         <div class="reply muted">↳ {{ r.response_content?.body || '—' }}</div>
+        <div v-if="(r.response_content as any)?.buttons?.length" class="rule-buttons">
+          <span v-for="(b, i) in (r.response_content as any).buttons" :key="i" class="btn-chip">{{ b.title }}</span>
+        </div>
       </div>
       <div class="rule-actions">
         <label class="switch">
@@ -225,6 +256,11 @@ onMounted(load)
 .kw { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 .chip { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--brand); color: #fff; }
 .reply { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.btn-row { display: flex; gap: 6px; margin-bottom: 6px; }
+.btn-row input { flex: 1; }
+.add-btn { align-self: flex-start; }
+.rule-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.btn-chip { font-size: 12px; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--brand); color: var(--brand); background: #fff; }
 .rule-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
 .switch { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .switch input { width: auto; }

@@ -4,6 +4,7 @@ import {
   listConversations,
   getMessages,
   sendText,
+  sendButtons,
   messageBody,
   type Conversation,
   type Message,
@@ -34,6 +35,12 @@ const loadingMessages = ref(false)
 const draft = ref('')
 const sending = ref(false)
 const messagesEl = ref<HTMLElement | null>(null)
+
+// Interactive (button) composer — Cloud API channels only.
+const buttonMode = ref(false)
+const btnBody = ref('')
+const btnTitles = ref<string[]>([''])
+const canUseButtons = computed(() => selected.value?.channel_type === 'whatsapp')
 
 let realtime: { close(): void } | null = null
 let fallbackTimer: number | undefined
@@ -103,6 +110,40 @@ async function send() {
     await loadMessages()
   } catch (e: any) {
     alert(e?.response?.data?.message || 'Mesaj gönderilemedi.')
+  } finally {
+    sending.value = false
+  }
+}
+
+function addBtnTitle() {
+  if (btnTitles.value.length < 3) btnTitles.value.push('')
+}
+
+async function sendButtonMsg() {
+  if (!selected.value || sending.value) return
+  const body = btnBody.value.trim()
+  const titles = btnTitles.value.map((t) => t.trim()).filter(Boolean)
+  if (!body) {
+    alert('Mesaj metni gerekli.')
+    return
+  }
+  if (!titles.length) {
+    alert('En az bir buton gerekli.')
+    return
+  }
+  sending.value = true
+  try {
+    await sendButtons(
+      selected.value.id,
+      body,
+      titles.map((t) => ({ id: t, title: t }))
+    )
+    btnBody.value = ''
+    btnTitles.value = ['']
+    buttonMode.value = false
+    await loadMessages()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Butonlu mesaj gönderilemedi.')
   } finally {
     sending.value = false
   }
@@ -234,13 +275,40 @@ function fmtTime(iso: string | null): string {
               :class="['msg', m.direction === 'outgoing' ? 'out' : 'in']"
             >
               <div class="bubble">
-                <div class="bubble-text">{{ messageBody(m) || '[' + m.message_type + ']' }}</div>
+                <div class="bubble-text">
+                  {{ messageBody(m) || m.interactive_data?.body || '[' + m.message_type + ']' }}
+                </div>
+                <div v-if="m.interactive_data?.buttons?.length" class="bubble-buttons">
+                  <span v-for="(b, i) in m.interactive_data.buttons" :key="i" class="bubble-btn">{{ b.title }}</span>
+                </div>
                 <div class="bubble-meta">{{ fmtTime(m.created_at) }}</div>
               </div>
             </div>
           </div>
 
-          <form class="composer" @submit.prevent="send">
+          <!-- Interactive (button) composer -->
+          <div v-if="buttonMode" class="composer btn-composer">
+            <input v-model="btnBody" placeholder="Soru / mesaj metni…" />
+            <div v-for="(_, i) in btnTitles" :key="i" class="btn-line">
+              <input v-model="btnTitles[i]" maxlength="20" :placeholder="'Buton ' + (i + 1)" />
+            </div>
+            <div class="btn-composer-actions">
+              <button type="button" v-if="btnTitles.length < 3" @click="addBtnTitle">＋ Buton</button>
+              <button type="button" @click="buttonMode = false">İptal</button>
+              <button class="primary" :disabled="sending" @click="sendButtonMsg">Butonlu Gönder</button>
+            </div>
+          </div>
+
+          <form v-else class="composer" @submit.prevent="send">
+            <button
+              v-if="canUseButtons"
+              type="button"
+              class="btn-toggle"
+              title="Çoktan seçmeli buton gönder"
+              @click="buttonMode = true"
+            >
+              ⊞
+            </button>
             <input v-model="draft" placeholder="Mesaj yazın…" autocomplete="off" />
             <button class="primary send-btn" type="submit" :disabled="sending || !draft.trim()">Gönder</button>
           </form>
@@ -308,6 +376,13 @@ function fmtTime(iso: string | null): string {
 .msg.out .bubble { background: #d9fdd3; }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
+.bubble-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 6px; }
+.bubble-btn { text-align: center; font-size: 13px; color: #027eb5; padding: 5px; border-radius: 6px; background: rgba(0,0,0,0.03); }
+
+.btn-composer { flex-direction: column; align-items: stretch; gap: 6px; }
+.btn-line { display: flex; }
+.btn-composer-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn-toggle { border: 1px solid var(--border); background: var(--panel); padding: 0 12px; font-size: 18px; border-radius: var(--radius); }
 
 .composer { display: flex; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border); background: var(--panel); }
 .composer input { flex: 1; }

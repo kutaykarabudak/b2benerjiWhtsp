@@ -22,6 +22,11 @@ export interface Message {
   direction: 'incoming' | 'outgoing'
   message_type: string
   content: { body?: string } | string | null
+  interactive_data?: {
+    type?: string
+    body?: string
+    buttons?: { id?: string; title?: string }[]
+  } | null
   status: string
   created_at: string
 }
@@ -54,6 +59,18 @@ export async function sendText(contactId: string, body: string): Promise<void> {
   await api.post(`/contacts/${contactId}/messages`, {
     type: 'text',
     content: { body }
+  })
+}
+
+// Sends an interactive button message (Cloud API channels only).
+export async function sendButtons(
+  contactId: string,
+  body: string,
+  buttons: { id: string; title: string }[]
+): Promise<void> {
+  await api.post(`/contacts/${contactId}/messages`, {
+    type: 'interactive',
+    interactive: { type: 'button', body, buttons }
   })
 }
 
