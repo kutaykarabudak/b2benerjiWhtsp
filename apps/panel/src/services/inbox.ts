@@ -1,7 +1,7 @@
 import { api } from './api'
 
 // Channels the inbox understands. Kept in sync with internal/channels.
-export type ChannelType = 'whatsapp' | 'instagram' | 'messenger' | 'telegram'
+export type ChannelType = 'whatsapp' | 'whatsapp_qr' | 'instagram' | 'messenger' | 'telegram'
 
 export interface Conversation {
   id: string

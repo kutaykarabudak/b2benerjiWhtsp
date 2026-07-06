@@ -11,6 +11,7 @@ const nav = [
   { to: '/inbox', label: 'Gelen Kutusu', icon: '💬' },
   { to: '/contacts', label: 'Kişiler', icon: '👥' },
   { to: '/campaigns', label: 'Toplu Mesaj', icon: '📣' },
+  { to: '/templates', label: 'Şablonlar', icon: '📄' },
   { to: '/chatbot', label: 'Chatbot', icon: '🤖' },
   { to: '/admin', label: 'Yönetim', icon: '⚙️' }
 ]

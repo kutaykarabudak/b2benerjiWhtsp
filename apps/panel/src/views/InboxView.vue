@@ -12,13 +12,17 @@ import {
 } from '@/services/inbox'
 import { createRealtime } from '@/services/ws'
 
-// Channel presentation.
+// Display metadata for all channel types (used for conversation icons).
 const CHANNELS: { type: ChannelType; label: string; icon: string }[] = [
   { type: 'whatsapp', label: 'WhatsApp', icon: '🟢' },
+  { type: 'whatsapp_qr', label: 'WhatsApp Web', icon: '🟢' },
   { type: 'instagram', label: 'Instagram', icon: '📸' },
   { type: 'messenger', label: 'Messenger', icon: '💬' },
   { type: 'telegram', label: 'Telegram', icon: '✈️' }
 ]
+
+// Only WhatsApp is offered as a filter chip in this deployment.
+const CHIP_CHANNELS = CHANNELS.filter((c) => c.type === 'whatsapp')
 
 const conversations = ref<Conversation[]>([])
 const loadingList = ref(false)
@@ -205,7 +209,7 @@ function fmtTime(iso: string | null): string {
       <div class="chips">
         <button :class="['chip', { on: activeChannel === 'all' }]" @click="activeChannel = 'all'">Tümü</button>
         <button
-          v-for="ch in CHANNELS"
+          v-for="ch in CHIP_CHANNELS"
           :key="ch.type"
           :class="['chip', { on: activeChannel === ch.type }]"
           @click="activeChannel = ch.type"

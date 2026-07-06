@@ -6,6 +6,8 @@ import {
   updateRule,
   toggleRule,
   deleteRule,
+  getChatbotEnabled,
+  setChatbotEnabled,
   type KeywordRule,
   type RuleInput,
   type MatchType
@@ -13,6 +15,27 @@ import {
 
 const rules = ref<KeywordRule[]>([])
 const loading = ref(false)
+
+const botEnabled = ref(false)
+const togglingBot = ref(false)
+async function loadEnabled() {
+  try {
+    botEnabled.value = await getChatbotEnabled()
+  } catch {
+    /* sessiz */
+  }
+}
+async function toggleBot() {
+  togglingBot.value = true
+  try {
+    await setChatbotEnabled(!botEnabled.value)
+    botEnabled.value = !botEnabled.value
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Değiştirilemedi.')
+  } finally {
+    togglingBot.value = false
+  }
+}
 
 const MATCH_LABEL: Record<MatchType, string> = {
   contains: 'İçeriyor',
@@ -131,7 +154,10 @@ async function remove(r: KeywordRule) {
   await load()
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  loadEnabled()
+})
 </script>
 
 <template>
@@ -143,6 +169,19 @@ onMounted(load)
       </div>
       <button class="primary" @click="startCreate">＋ Yeni Kural</button>
     </header>
+
+    <!-- Master switch: chatbot is OFF by default on Cloud API channels -->
+    <div class="card bot-switch" :class="{ on: botEnabled }">
+      <div>
+        <b>Chatbot {{ botEnabled ? 'AÇIK' : 'KAPALI' }}</b>
+        <span class="muted small">
+          — {{ botEnabled ? 'Kurallar otomatik yanıt veriyor.' : 'KAPALIYKEN kurallar çalışmaz. Otomatik yanıt için açın.' }}
+        </span>
+      </div>
+      <button :class="botEnabled ? '' : 'primary'" :disabled="togglingBot" @click="toggleBot">
+        {{ togglingBot ? '…' : botEnabled ? 'Kapat' : 'Aç' }}
+      </button>
+    </div>
 
     <!-- How it works -->
     <div class="card explainer">
@@ -275,6 +314,8 @@ onMounted(load)
 .add-btn { align-self: flex-start; }
 .rule-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .btn-chip { font-size: 12px; padding: 2px 10px; border-radius: 6px; border: 1px solid var(--brand); color: var(--brand); background: #fff; }
+.bot-switch { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; border-left: 4px solid var(--danger); }
+.bot-switch.on { border-left-color: var(--brand); }
 .explainer { margin-bottom: 16px; font-size: 14px; }
 .explainer ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; }
 .example { margin-top: 10px; font-size: 13px; padding: 8px 10px; background: var(--bg); border-radius: var(--radius); }

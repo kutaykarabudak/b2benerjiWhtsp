@@ -65,6 +65,10 @@ if [[ -n "${META_CONFIG_ID:-}" ]]; then
   ENV_VARS+="~WHATOMATE_WHATSAPP__CONFIG_ID=${META_CONFIG_ID}"
 fi
 
+# Longer-lived sessions (the panel also auto-refreshes on expiry) so users
+# aren't bounced to login mid-work.
+ENV_VARS+="~WHATOMATE_JWT__ACCESS_EXPIRY_MINS=480~WHATOMATE_JWT__REFRESH_EXPIRY_DAYS=30"
+
 # Firebase Hosting can't proxy WebSockets, so tell the frontend to connect WS
 # directly to the Cloud Run service URL (stable across revisions).
 WS_PUBLIC_URL="$(gcloud run services describe "${SERVICE}" --region "${REGION}" --format='value(status.url)' 2>/dev/null || true)"

@@ -25,11 +25,44 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Single-flight refresh: when the short-lived access token expires, transparently
+// refresh once and retry the request instead of bouncing the user to login.
+let refreshing: Promise<boolean> | null = null
+
+async function tryRefresh(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = axios
+      .post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+      .then(() => true)
+      .catch(() => false)
+      .finally(() => {
+        refreshing = null
+      })
+  }
+  return refreshing
+}
+
 // The backend wraps responses in a fastglue envelope: { status, data, message }.
 // Unwrap to the payload so callers work with plain data.
-api.interceptors.response.use((res) => {
-  if (res.data && typeof res.data === 'object' && 'data' in res.data) {
-    res.data = (res.data as { data: unknown }).data
+api.interceptors.response.use(
+  (res) => {
+    if (res.data && typeof res.data === 'object' && 'data' in res.data) {
+      res.data = (res.data as { data: unknown }).data
+    }
+    return res
+  },
+  async (error) => {
+    const cfg = error.config || {}
+    const url: string = cfg.url || ''
+    const is401 = error.response?.status === 401
+    // Don't loop on the auth endpoints themselves.
+    const isAuthCall = url.includes('/auth/refresh') || url.includes('/auth/login')
+    if (is401 && !cfg._retried && !isAuthCall) {
+      cfg._retried = true
+      if (await tryRefresh()) {
+        return api(cfg)
+      }
+    }
+    return Promise.reject(error)
   }
-  return res
-})
+)

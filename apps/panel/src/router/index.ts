@@ -18,6 +18,7 @@ const router = createRouter({
         { path: 'inbox', name: 'inbox', component: () => import('@/views/InboxView.vue') },
         { path: 'contacts', name: 'contacts', component: () => import('@/views/ContactsView.vue') },
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/CampaignsView.vue') },
+        { path: 'templates', name: 'templates', component: () => import('@/views/TemplatesView.vue') },
         { path: 'chatbot', name: 'chatbot', component: () => import('@/views/ChatbotView.vue') },
         { path: 'admin', name: 'admin', component: () => import('@/views/AdminView.vue') }
       ]

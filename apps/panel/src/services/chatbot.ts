@@ -67,3 +67,14 @@ export async function toggleRule(id: string, enabled: boolean): Promise<void> {
 export async function deleteRule(id: string): Promise<void> {
   await api.delete(`/chatbot/keywords/${id}`)
 }
+
+// Chatbot master switch. On Cloud API channels the backend ignores keyword
+// rules unless the chatbot is enabled, so this must be ON to get auto-replies.
+export async function getChatbotEnabled(): Promise<boolean> {
+  const res = await api.get('/chatbot/settings')
+  return !!res.data?.enabled
+}
+
+export async function setChatbotEnabled(enabled: boolean): Promise<void> {
+  await api.put('/chatbot/settings', { enabled })
+}
