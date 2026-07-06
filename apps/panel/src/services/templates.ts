@@ -25,3 +25,36 @@ export async function listTemplates(): Promise<Template[]> {
 export async function syncTemplates(accountName: string): Promise<void> {
   await api.post('/templates/sync', { whatsapp_account: accountName })
 }
+
+export interface TemplateButton {
+  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER'
+  text: string
+  url?: string
+  phone_number?: string
+}
+
+export interface TemplateInput {
+  whatsapp_account: string
+  name: string
+  language: string
+  category: string
+  header_type?: string // '' or 'TEXT'
+  header_content?: string
+  body_content: string
+  footer_content?: string
+  buttons?: TemplateButton[]
+}
+
+export async function createTemplate(input: TemplateInput): Promise<string> {
+  const res = await api.post('/templates', input)
+  return res.data?.id ?? res.data?.template?.id ?? ''
+}
+
+// Submits a template to Meta for approval.
+export async function submitTemplate(id: string): Promise<void> {
+  await api.post(`/templates/${id}/publish`)
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  await api.delete(`/templates/${id}`)
+}
