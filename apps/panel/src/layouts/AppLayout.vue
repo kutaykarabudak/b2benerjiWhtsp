@@ -12,6 +12,7 @@ const nav = [
   { to: '/contacts', label: 'Kişiler', icon: '👥' },
   { to: '/campaigns', label: 'Toplu Mesaj', icon: '📣' },
   { to: '/templates', label: 'Şablonlar', icon: '📄' },
+  { to: '/catalog', label: 'Katalog', icon: '🛍️' },
   { to: '/chatbot', label: 'Chatbot', icon: '🤖' },
   { to: '/admin', label: 'Yönetim', icon: '⚙️' }
 ]
