@@ -149,6 +149,26 @@ func (a *App) CreateAccount(r *fastglue.Request) error {
 			Update("is_default_outgoing", false)
 	}
 
+	// Restore-or-create: if an account with the same phone_id or name already
+	// exists for this org (including a soft-deleted one), update it in place
+	// instead of failing on the unique index. This lets users re-add a number
+	// or refresh its token without a hard delete.
+	var existing models.WhatsAppAccount
+	if err := a.DB.Unscoped().
+		Where("organization_id = ? AND (phone_id = ? OR name = ?)", orgID, req.PhoneID, req.Name).
+		First(&existing).Error; err == nil {
+		a.DB.Unscoped().Model(&models.WhatsAppAccount{}).Where("id = ?", existing.ID).Update("deleted_at", nil)
+		account.ID = existing.ID
+		account.CreatedAt = existing.CreatedAt
+		if err := a.DB.Save(&account).Error; err != nil {
+			a.Log.Error("Failed to update account", "error", err)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to save account", nil, "")
+		}
+		a.DB.Preload("CreatedBy").Preload("UpdatedBy").First(&account, "id = ?", account.ID)
+		a.logAudit(orgID, userID, "account", account.ID, models.AuditActionUpdated, &existing, &account)
+		return r.SendEnvelope(accountToResponse(account))
+	}
+
 	if err := a.DB.Create(&account).Error; err != nil {
 		a.Log.Error("Failed to create account", "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to create account", nil, "")
