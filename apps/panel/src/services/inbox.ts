@@ -14,6 +14,16 @@ export interface Conversation {
   unread_count: number
   whatsapp_account?: string
   service_window_open: boolean
+  tags?: string[]
+  metadata?: Record<string, any>
+}
+
+// Update a contact's CRM info (name, tags, company/email/notes in metadata).
+export async function updateContactInfo(
+  contactId: string,
+  data: { profile_name?: string; tags?: string[]; metadata?: Record<string, unknown> }
+): Promise<void> {
+  await api.put(`/contacts/${contactId}`, data)
 }
 
 export interface Message {

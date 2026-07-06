@@ -8,6 +8,7 @@ import {
   sendButtons,
   sendMedia,
   sendLocation,
+  updateContactInfo,
   messageBody,
   type Conversation,
   type Message,
@@ -48,6 +49,47 @@ const buttonMode = ref(false)
 const btnBody = ref('')
 const btnTitles = ref<string[]>([''])
 const canUseButtons = computed(() => selected.value?.channel_type === 'whatsapp')
+
+// Contact info (CRM) editor for the open conversation.
+const showContactEdit = ref(false)
+const savingContact = ref(false)
+const cForm = ref({ name: '', company: '', email: '', notes: '', tags: '' })
+
+function openContactEdit() {
+  const c = selected.value
+  if (!c) return
+  const m = c.metadata || {}
+  cForm.value = {
+    name: c.name || c.profile_name || '',
+    company: m.company || '',
+    email: m.email || '',
+    notes: m.notes || '',
+    tags: (c.tags || []).join(', ')
+  }
+  showContactEdit.value = true
+}
+
+async function saveContactInfo() {
+  if (!selected.value) return
+  savingContact.value = true
+  try {
+    const metadata: Record<string, unknown> = { ...(selected.value.metadata || {}) }
+    metadata.company = cForm.value.company.trim()
+    metadata.email = cForm.value.email.trim()
+    metadata.notes = cForm.value.notes.trim()
+    await updateContactInfo(selected.value.id, {
+      profile_name: cForm.value.name.trim(),
+      tags: cForm.value.tags ? cForm.value.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+      metadata
+    })
+    showContactEdit.value = false
+    await loadConversations()
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'Kaydedilemedi.')
+  } finally {
+    savingContact.value = false
+  }
+}
 
 function shareLocation() {
   if (!selected.value) return
@@ -324,6 +366,24 @@ function fmtTime(iso: string | null): string {
             <span v-if="!selected.service_window_open && selected.channel_type === 'whatsapp'" class="window-closed">
               24s kapalı
             </span>
+            <button class="edit-contact-btn" title="Kişi bilgisi" @click="openContactEdit">✏️</button>
+          </div>
+
+          <!-- Contact CRM editor -->
+          <div v-if="showContactEdit" class="contact-edit">
+            <div class="ce-row">
+              <input v-model="cForm.name" placeholder="İsim" />
+              <input v-model="cForm.company" placeholder="Şirket" />
+            </div>
+            <div class="ce-row">
+              <input v-model="cForm.email" placeholder="E-posta" />
+              <input v-model="cForm.tags" placeholder="Etiketler (virgülle)" />
+            </div>
+            <input v-model="cForm.notes" placeholder="Not…" />
+            <div class="ce-actions">
+              <button type="button" @click="showContactEdit = false">İptal</button>
+              <button class="primary" :disabled="savingContact" @click="saveContactInfo">Kaydet</button>
+            </div>
           </div>
 
           <div ref="messagesEl" class="messages">
@@ -455,6 +515,11 @@ function fmtTime(iso: string | null): string {
 .chat-title { font-weight: 600; }
 .small { font-size: 12px; }
 .window-closed { font-size: 12px; color: var(--danger); }
+.edit-contact-btn { border: none; background: transparent; font-size: 16px; padding: 4px 6px; cursor: pointer; }
+.contact-edit { display: flex; flex-direction: column; gap: 6px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.ce-row { display: flex; gap: 6px; }
+.ce-row input { flex: 1; }
+.ce-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .back-btn { display: none; border: none; background: transparent; font-size: 22px; padding: 0 4px; line-height: 1; }
 
 .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
