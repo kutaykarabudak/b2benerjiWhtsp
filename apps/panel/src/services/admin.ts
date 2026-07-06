@@ -93,6 +93,7 @@ export async function deleteAccount(id: string): Promise<void> {
 export interface MetaAppSettings {
   meta_app_id: string
   meta_config_id: string
+  meta_business_id: string
   has_meta_app_secret: boolean
 }
 
@@ -102,6 +103,7 @@ export async function getMetaAppSettings(): Promise<MetaAppSettings> {
   return {
     meta_app_id: s.meta_app_id || '',
     meta_config_id: s.meta_config_id || '',
+    meta_business_id: s.meta_business_id || '',
     has_meta_app_secret: !!s.has_meta_app_secret
   }
 }
@@ -109,11 +111,13 @@ export async function getMetaAppSettings(): Promise<MetaAppSettings> {
 export async function saveMetaAppSettings(input: {
   meta_app_id: string
   meta_config_id: string
+  meta_business_id: string
   meta_app_secret?: string
 }): Promise<void> {
   const body: Record<string, string> = {
     meta_app_id: input.meta_app_id,
-    meta_config_id: input.meta_config_id
+    meta_config_id: input.meta_config_id,
+    meta_business_id: input.meta_business_id
   }
   // Only send the secret when the user typed a new one (empty = keep existing).
   if (input.meta_app_secret) body.meta_app_secret = input.meta_app_secret

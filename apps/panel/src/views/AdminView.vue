@@ -139,7 +139,7 @@ async function loadAccounts() {
 }
 
 // ---- Meta App integration (entered from the UI, no backend config needed) ----
-const metaForm = ref({ meta_app_id: '', meta_config_id: '', meta_app_secret: '' })
+const metaForm = ref({ meta_app_id: '', meta_config_id: '', meta_business_id: '', meta_app_secret: '' })
 const metaHasSecret = ref(false)
 const savingMeta = ref(false)
 const metaMsg = ref('')
@@ -149,6 +149,7 @@ async function loadMetaSettings() {
     const s = await getMetaAppSettings()
     metaForm.value.meta_app_id = s.meta_app_id
     metaForm.value.meta_config_id = s.meta_config_id
+    metaForm.value.meta_business_id = s.meta_business_id
     metaHasSecret.value = s.has_meta_app_secret
   } catch {
     /* yetki yoksa sessiz geç */
@@ -162,6 +163,7 @@ async function saveMeta() {
     await saveMetaAppSettings({
       meta_app_id: metaForm.value.meta_app_id.trim(),
       meta_config_id: metaForm.value.meta_config_id.trim(),
+      meta_business_id: metaForm.value.meta_business_id.trim(),
       meta_app_secret: metaForm.value.meta_app_secret.trim() || undefined
     })
     metaForm.value.meta_app_secret = ''
@@ -406,6 +408,13 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
             <label>Configuration ID</label>
             <input v-model="metaForm.meta_config_id" placeholder="Embedded Signup Config ID" />
           </div>
+        </div>
+        <div class="field">
+          <label>
+            Meta Business Portfolio ID
+            <span class="muted small">(katalog için — Business Settings → İşletme bilgileri’ndeki ID)</span>
+          </label>
+          <input v-model="metaForm.meta_business_id" placeholder="ör. 23968095896159710" />
         </div>
         <div class="field">
           <label>

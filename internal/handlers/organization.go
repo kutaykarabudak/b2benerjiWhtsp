@@ -59,6 +59,7 @@ type OrganizationSettings struct {
 	RingbackFile        string `json:"ringback_file"`
 	MetaAppID           string `json:"meta_app_id"`
 	MetaConfigID        string `json:"meta_config_id"`
+	MetaBusinessID      string `json:"meta_business_id"` // Meta Business Portfolio ID (catalog/commerce)
 	HasMetaAppSecret    bool   `json:"has_meta_app_secret"`
 }
 
@@ -117,6 +118,9 @@ func (a *App) GetOrganizationSettings(r *fastglue.Request) error {
 		if v, ok := org.Settings["meta_config_id"].(string); ok && v != "" {
 			settings.MetaConfigID = v
 		}
+		if v, ok := org.Settings["meta_business_id"].(string); ok && v != "" {
+			settings.MetaBusinessID = v
+		}
 		if v, ok := org.Settings["meta_app_secret_encrypted"].(string); ok && v != "" {
 			settings.HasMetaAppSecret = true
 		}
@@ -147,6 +151,7 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 		RingbackFile        *string `json:"ringback_file"`
 		MetaAppID           *string `json:"meta_app_id"`
 		MetaConfigID        *string `json:"meta_config_id"`
+		MetaBusinessID      *string `json:"meta_business_id"`
 		MetaAppSecret       *string `json:"meta_app_secret"`
 	}
 
@@ -160,7 +165,7 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	}
 
 	// Gating Meta App credentials update on accounts:write permission
-	metaAppCredsTouched := req.MetaAppID != nil || req.MetaConfigID != nil || req.MetaAppSecret != nil
+	metaAppCredsTouched := req.MetaAppID != nil || req.MetaConfigID != nil || req.MetaBusinessID != nil || req.MetaAppSecret != nil
 	if metaAppCredsTouched {
 		if err := a.requirePermission(r, userID, models.ResourceAccounts, models.ActionWrite); err != nil {
 			return nil
@@ -209,6 +214,9 @@ func (a *App) UpdateOrganizationSettings(r *fastglue.Request) error {
 	}
 	if req.MetaConfigID != nil {
 		org.Settings["meta_config_id"] = *req.MetaConfigID
+	}
+	if req.MetaBusinessID != nil {
+		org.Settings["meta_business_id"] = *req.MetaBusinessID
 	}
 	if req.MetaAppSecret != nil && *req.MetaAppSecret != "" {
 		encSecret, errEnc := crypto.Encrypt(*req.MetaAppSecret, a.Config.App.EncryptionKey)

@@ -61,6 +61,18 @@ type SyncCatalogsRequest struct {
 	WhatsAppAccount string `json:"whatsapp_account"`
 }
 
+// applyCatalogBusinessID overrides the account's business id with the org's Meta
+// Business Portfolio ID when set. The owned_product_catalogs edge lives on the
+// Business Portfolio, not on the WhatsApp Business Account (WABA) id users enter.
+func (a *App) applyCatalogBusinessID(orgID uuid.UUID, waAccount *whatsapp.Account) {
+	var org models.Organization
+	if err := a.DB.Where("id = ?", orgID).First(&org).Error; err == nil && org.Settings != nil {
+		if v, ok := org.Settings["meta_business_id"].(string); ok && v != "" {
+			waAccount.BusinessID = v
+		}
+	}
+}
+
 // ListCatalogs returns all catalogs for the organization
 func (a *App) ListCatalogs(r *fastglue.Request) error {
 	orgID, err := a.getOrgID(r)
@@ -119,6 +131,7 @@ func (a *App) CreateCatalog(r *fastglue.Request) error {
 	// Create catalog in Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	metaCatalogID, err := a.WhatsApp.CreateCatalog(ctx, waAccount, req.Name)
 	if err != nil {
@@ -196,6 +209,7 @@ func (a *App) DeleteCatalog(r *fastglue.Request) error {
 	// Delete from Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	if err := a.WhatsApp.DeleteCatalog(ctx, waAccount, catalog.MetaCatalogID); err != nil {
 		a.Log.Error("Failed to delete catalog from Meta", "error", err)
@@ -239,6 +253,7 @@ func (a *App) SyncCatalogs(r *fastglue.Request) error {
 	// Fetch catalogs from Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	metaCatalogs, err := a.WhatsApp.ListCatalogs(ctx, waAccount)
 	if err != nil {
@@ -356,6 +371,7 @@ func (a *App) CreateCatalogProduct(r *fastglue.Request) error {
 	// Create product in Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	productInput := &whatsapp.ProductInput{
 		Name:        req.Name,
@@ -453,6 +469,7 @@ func (a *App) UpdateCatalogProduct(r *fastglue.Request) error {
 	// Update product in Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	productInput := &whatsapp.ProductInput{
 		Name:        req.Name,
@@ -531,6 +548,7 @@ func (a *App) DeleteCatalogProduct(r *fastglue.Request) error {
 	// Delete from Meta
 	ctx := context.Background()
 	waAccount := a.toWhatsAppAccount(account)
+	a.applyCatalogBusinessID(orgID, waAccount)
 
 	if err := a.WhatsApp.DeleteProduct(ctx, waAccount, product.MetaProductID); err != nil {
 		a.Log.Error("Failed to delete product from Meta", "error", err)
