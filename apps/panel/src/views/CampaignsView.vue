@@ -14,6 +14,7 @@ import {
   type Account,
   type Template
 } from '@/services/campaigns'
+import { listContacts } from '@/services/contacts'
 
 const campaigns = ref<Campaign[]>([])
 const accounts = ref<Account[]>([])
@@ -67,9 +68,45 @@ async function submitCreate() {
   }
 }
 
-function openRecipients(c: Campaign) {
-  recipientsFor.value = recipientsFor.value === c.id ? null : c.id
+// Contact picker
+const pickerContacts = ref<{ id: string; name: string; phone_number: string }[]>([])
+const picked = ref<Set<string>>(new Set())
+const showPicker = ref(false)
+
+async function openRecipients(c: Campaign) {
+  const opening = recipientsFor.value !== c.id
+  recipientsFor.value = opening ? c.id : null
   recipientText.value = ''
+  showPicker.value = false
+  picked.value = new Set()
+  if (opening && !pickerContacts.value.length) {
+    try {
+      const list = await listContacts('')
+      pickerContacts.value = list.map((x) => ({
+        id: x.id,
+        name: x.name || x.profile_name || x.phone_number,
+        phone_number: x.phone_number
+      }))
+    } catch {
+      /* sessiz */
+    }
+  }
+}
+
+function togglePick(id: string) {
+  const s = new Set(picked.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  picked.value = s
+}
+
+function addPickedToText() {
+  const phones = pickerContacts.value
+    .filter((c) => picked.value.has(c.id))
+    .map((c) => c.phone_number)
+  const existing = recipientText.value.trim()
+  recipientText.value = (existing ? existing + '\n' : '') + phones.join('\n')
+  showPicker.value = false
+  picked.value = new Set()
 }
 
 async function saveRecipients(c: Campaign) {
@@ -203,6 +240,23 @@ onMounted(loadAll)
       <div v-if="recipientsFor === c.id" class="recipients">
         <label class="muted small">Telefon numaraları (her satıra bir tane veya virgülle)</label>
         <textarea v-model="recipientText" rows="4" placeholder="905551112233&#10;905552223344"></textarea>
+
+        <div class="picker-bar">
+          <button type="button" @click="showPicker = !showPicker">
+            👥 Kişilerden Seç{{ pickerContacts.length ? ' (' + pickerContacts.length + ')' : '' }}
+          </button>
+          <button v-if="showPicker && picked.size" type="button" class="primary" @click="addPickedToText">
+            {{ picked.size }} kişiyi ekle
+          </button>
+        </div>
+        <div v-if="showPicker" class="picker-list">
+          <label v-for="pc in pickerContacts" :key="pc.id" class="picker-item">
+            <input type="checkbox" :checked="picked.has(pc.id)" @change="togglePick(pc.id)" />
+            {{ pc.name }} <span class="muted small">· {{ pc.phone_number }}</span>
+          </label>
+          <div v-if="!pickerContacts.length" class="muted small">Kayıtlı kişi yok.</div>
+        </div>
+
         <div class="form-actions">
           <button type="button" @click="recipientsFor = null">Kapat</button>
           <button class="primary" :disabled="savingRecipients" @click="saveRecipients(c)">Ekle</button>
@@ -244,4 +298,8 @@ onMounted(loadAll)
 
 .recipients { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .recipients textarea { width: 100%; font-family: inherit; }
+.picker-bar { display: flex; gap: 8px; margin-top: 8px; }
+.picker-list { max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.picker-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.picker-item input { width: auto; }
 </style>

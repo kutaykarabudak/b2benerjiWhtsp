@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   listConversations,
   getMessages,
   sendText,
   sendButtons,
+  sendMedia,
   messageBody,
   type Conversation,
   type Message,
@@ -45,6 +47,24 @@ const buttonMode = ref(false)
 const btnBody = ref('')
 const btnTitles = ref<string[]>([''])
 const canUseButtons = computed(() => selected.value?.channel_type === 'whatsapp')
+
+const fileInput = ref<HTMLInputElement | null>(null)
+async function onImageChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !selected.value) return
+  sending.value = true
+  try {
+    await sendMedia(selected.value.id, file, draft.value.trim())
+    draft.value = ''
+    await loadMessages()
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Görsel gönderilemedi.')
+  } finally {
+    sending.value = false
+  }
+}
 
 let realtime: { close(): void } | null = null
 let fallbackTimer: number | undefined
@@ -180,8 +200,16 @@ watch(search, () => {
   searchTimer = window.setTimeout(loadConversations, 350)
 })
 
-onMounted(() => {
-  loadConversations()
+const route = useRoute()
+
+onMounted(async () => {
+  await loadConversations()
+  // Opened from Contacts → "Sohbet": select that conversation.
+  const cid = route.query.contact as string | undefined
+  if (cid) {
+    const conv = conversations.value.find((c) => c.id === cid)
+    if (conv) openConversation(conv)
+  }
   realtime = createRealtime(onRealtime)
   // Safety net if WebSocket can't get through (e.g. some proxies): periodic sync.
   fallbackTimer = window.setInterval(() => {
@@ -279,8 +307,9 @@ function fmtTime(iso: string | null): string {
               :class="['msg', m.direction === 'outgoing' ? 'out' : 'in']"
             >
               <div class="bubble">
-                <div class="bubble-text">
-                  {{ messageBody(m) || m.interactive_data?.body || '[' + m.message_type + ']' }}
+                <img v-if="m.media_url && m.message_type === 'image'" :src="m.media_url" class="bubble-img" />
+                <div v-if="messageBody(m) || m.interactive_data?.body || m.message_type !== 'image'" class="bubble-text">
+                  {{ messageBody(m) || m.interactive_data?.body || (m.message_type === 'image' ? '' : '[' + m.message_type + ']') }}
                 </div>
                 <div v-if="m.interactive_data?.buttons?.length" class="bubble-buttons">
                   <span v-for="(b, i) in m.interactive_data.buttons" :key="i" class="bubble-btn">{{ b.title }}</span>
@@ -304,6 +333,15 @@ function fmtTime(iso: string | null): string {
           </div>
 
           <form v-else class="composer" @submit.prevent="send">
+            <button
+              type="button"
+              class="btn-toggle"
+              title="Görsel gönder"
+              @click="fileInput?.click()"
+            >
+              📎
+            </button>
+            <input ref="fileInput" type="file" accept="image/*" hidden @change="onImageChosen" />
             <button
               v-if="canUseButtons"
               type="button"
@@ -378,6 +416,7 @@ function fmtTime(iso: string | null): string {
 .msg.out { justify-content: flex-end; }
 .bubble { max-width: 72%; padding: 7px 10px; border-radius: 8px; background: #fff; box-shadow: 0 1px 0.5px rgba(0,0,0,0.08); }
 .msg.out .bubble { background: #d9fdd3; }
+.bubble-img { max-width: 240px; max-height: 240px; border-radius: 6px; display: block; margin-bottom: 4px; }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
 .bubble-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 6px; }

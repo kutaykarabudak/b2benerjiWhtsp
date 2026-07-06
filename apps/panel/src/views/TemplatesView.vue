@@ -4,6 +4,7 @@ import {
   listTemplates,
   syncTemplates,
   createTemplate,
+  updateTemplate,
   submitTemplate,
   deleteTemplate,
   type Template,
@@ -58,6 +59,7 @@ const VAR1 = '{{1}}'
 
 // ---- Editor ----
 const showEditor = ref(false)
+const editId = ref<string | null>(null)
 const saving = ref(false)
 const editError = ref('')
 const form = ref(blankForm())
@@ -77,7 +79,31 @@ function blankForm() {
 
 function openEditor() {
   form.value = blankForm()
+  editId.value = null
   if (accounts.value.length) form.value.whatsapp_account = accounts.value[0].name
+  editError.value = ''
+  showEditor.value = true
+}
+
+function startEditTpl(t: Template) {
+  editId.value = t.id
+  form.value = {
+    whatsapp_account: t.whatsapp_account,
+    name: t.name,
+    language: t.language,
+    category: t.category,
+    header_content: t.header_content || '',
+    body_content: t.body_content,
+    footer_content: t.footer_content || '',
+    buttons: Array.isArray(t.buttons)
+      ? (t.buttons as any[]).map((b) => ({
+          type: (b.type || 'QUICK_REPLY') as TemplateButton['type'],
+          text: b.text || b.title || '',
+          url: b.url,
+          phone_number: b.phone_number
+        }))
+      : []
+  }
   editError.value = ''
   showEditor.value = true
 }
@@ -107,7 +133,7 @@ async function saveTemplate(submitAfter: boolean) {
   }
   saving.value = true
   try {
-    const id = await createTemplate({
+    const payload = {
       whatsapp_account: f.whatsapp_account,
       name: f.name.trim(),
       language: f.language.trim() || 'tr',
@@ -117,7 +143,13 @@ async function saveTemplate(submitAfter: boolean) {
       body_content: f.body_content.trim(),
       footer_content: f.footer_content.trim(),
       buttons: f.buttons.filter((b) => b.text.trim())
-    })
+    }
+    let id = editId.value
+    if (id) {
+      await updateTemplate(id, payload)
+    } else {
+      id = await createTemplate(payload)
+    }
     if (submitAfter && id) {
       await submitTemplate(id)
       msg.value = '✓ Oluşturuldu ve Meta onayına gönderildi.'
@@ -266,6 +298,7 @@ onMounted(load)
         <span v-for="(b, i) in t.buttons" :key="i" class="tpl-btn">{{ (b as any).text || (b as any).title || 'Buton' }}</span>
       </div>
       <div class="tpl-actions">
+        <button v-if="t.status !== 'PENDING'" @click="startEditTpl(t)">Düzenle</button>
         <button v-if="t.status !== 'APPROVED' && t.status !== 'PENDING'" @click="submitTpl(t)">Meta’ya Gönder</button>
         <button class="danger-btn" @click="removeTpl(t)">Sil</button>
       </div>

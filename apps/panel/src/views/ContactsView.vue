@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   listContacts,
   createContact,
@@ -16,7 +17,12 @@ let searchTimer: number | undefined
 
 // Add-contact form
 const showAdd = ref(false)
-const form = ref({ phone_number: '', profile_name: '', tags: '' })
+const router = useRouter()
+const form = ref({ phone_number: '', profile_name: '', company: '', email: '', notes: '', tags: '' })
+
+function startChat(c: Contact) {
+  router.push({ path: '/inbox', query: { contact: c.id } })
+}
 const saving = ref(false)
 const formError = ref('')
 
@@ -43,14 +49,19 @@ async function submitAdd() {
   }
   saving.value = true
   try {
+    const metadata: Record<string, unknown> = {}
+    if (form.value.company.trim()) metadata.company = form.value.company.trim()
+    if (form.value.email.trim()) metadata.email = form.value.email.trim()
+    if (form.value.notes.trim()) metadata.notes = form.value.notes.trim()
     await createContact({
       phone_number: form.value.phone_number.trim(),
       profile_name: form.value.profile_name.trim() || undefined,
       tags: form.value.tags
         ? form.value.tags.split(',').map((t) => t.trim()).filter(Boolean)
-        : undefined
+        : undefined,
+      metadata: Object.keys(metadata).length ? metadata : undefined
     })
-    form.value = { phone_number: '', profile_name: '', tags: '' }
+    form.value = { phone_number: '', profile_name: '', company: '', email: '', notes: '', tags: '' }
     showAdd.value = false
     await load()
   } catch (e: any) {
@@ -118,8 +129,22 @@ onMounted(load)
           <input v-model="form.profile_name" placeholder="Ad Soyad" />
         </div>
         <div class="field">
+          <label>Şirket</label>
+          <input v-model="form.company" placeholder="Firma adı" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>E-posta</label>
+          <input v-model="form.email" placeholder="ornek@firma.com" />
+        </div>
+        <div class="field">
           <label>Etiketler (virgülle)</label>
           <input v-model="form.tags" placeholder="müşteri, vip" />
+        </div>
+        <div class="field grow">
+          <label>Not</label>
+          <input v-model="form.notes" placeholder="Müşteri notu…" />
         </div>
       </div>
       <p v-if="formError" class="error">{{ formError }}</p>
@@ -161,6 +186,7 @@ onMounted(load)
             <td>{{ c.channel_type }}</td>
             <td class="tags-cell muted">—</td>
             <td class="right">
+              <button @click="startChat(c)">💬 Sohbet</button>
               <button class="danger-btn" @click="remove(c)">Sil</button>
             </td>
           </tr>

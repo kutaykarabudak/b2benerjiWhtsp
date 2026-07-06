@@ -10,6 +10,7 @@ export interface CreateContactInput {
   profile_name?: string
   whatsapp_account?: string
   tags?: string[]
+  metadata?: Record<string, unknown> // CRM fields: company, email, notes…
 }
 
 export interface ImportResult {

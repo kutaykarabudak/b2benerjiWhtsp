@@ -22,6 +22,7 @@ export interface Message {
   direction: 'incoming' | 'outgoing'
   message_type: string
   content: { body?: string } | string | null
+  media_url?: string
   interactive_data?: {
     type?: string
     body?: string
@@ -76,6 +77,21 @@ export async function sendButtons(
 
 export async function markRead(contactId: string): Promise<void> {
   await api.post(`/contacts/${contactId}/mark-read`)
+}
+
+// Sends an image (or other media) via the multipart media endpoint.
+export async function sendMedia(
+  contactId: string,
+  file: File,
+  caption = '',
+  type = 'image'
+): Promise<void> {
+  const form = new FormData()
+  form.append('contact_id', contactId)
+  form.append('type', type)
+  if (caption) form.append('caption', caption)
+  form.append('file', file)
+  await api.post('/messages/media', form, { headers: { 'Content-Type': undefined as unknown as string } })
 }
 
 export function messageBody(m: Message): string {

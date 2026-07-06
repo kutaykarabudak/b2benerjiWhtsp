@@ -50,6 +50,10 @@ export async function createTemplate(input: TemplateInput): Promise<string> {
   return res.data?.id ?? res.data?.template?.id ?? ''
 }
 
+export async function updateTemplate(id: string, input: TemplateInput): Promise<void> {
+  await api.put(`/templates/${id}`, input)
+}
+
 // Submits a template to Meta for approval.
 export async function submitTemplate(id: string): Promise<void> {
   await api.post(`/templates/${id}/publish`)
