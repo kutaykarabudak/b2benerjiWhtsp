@@ -275,6 +275,7 @@ async function openProfile(a: WhatsAppAccount) {
       address: p.address || '',
       description: p.description || '',
       email: p.email || '',
+      vertical: p.vertical || '',
       websitesText: (p.websites || []).join(', ')
     }
   } catch {
@@ -306,6 +307,7 @@ async function saveProfile(a: WhatsAppAccount) {
       address: profileForm.value.address,
       description: profileForm.value.description,
       email: profileForm.value.email,
+      vertical: profileForm.value.vertical,
       websites: profileForm.value.websitesText
         ? profileForm.value.websitesText.split(',').map((w) => w.trim()).filter(Boolean)
         : []
@@ -638,9 +640,34 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
               <input v-model="profileForm.email" placeholder="info@firma.com" />
             </div>
           </div>
-          <div class="field">
-            <label>Açıklama</label>
-            <input v-model="profileForm.description" placeholder="İşletme açıklaması" />
+          <div class="row">
+            <div class="field grow">
+              <label>Açıklama</label>
+              <input v-model="profileForm.description" placeholder="İşletme açıklaması" />
+            </div>
+            <div class="field grow">
+              <label>Kategori</label>
+              <select v-model="profileForm.vertical">
+                <option value="">(seçilmedi)</option>
+                <option value="OTHER">Diğer</option>
+                <option value="RETAIL">Perakende</option>
+                <option value="GROCERY">Bakkal / Manav</option>
+                <option value="RESTAURANT">Restoran</option>
+                <option value="APPAREL">Giyim</option>
+                <option value="BEAUTY">Güzellik / Kozmetik</option>
+                <option value="AUTO">Otomotiv</option>
+                <option value="EDU">Eğitim</option>
+                <option value="FINANCE">Finans</option>
+                <option value="HEALTH">Sağlık</option>
+                <option value="HOTEL">Otel / Konaklama</option>
+                <option value="TRAVEL">Seyahat</option>
+                <option value="ENTERTAIN">Eğlence</option>
+                <option value="EVENT_PLAN">Organizasyon</option>
+                <option value="PROF_SERVICES">Profesyonel Hizmetler</option>
+                <option value="GOVT">Kamu</option>
+                <option value="NONPROFIT">Kâr Amacı Gütmeyen</option>
+              </select>
+            </div>
           </div>
           <div class="row">
             <div class="field grow">
