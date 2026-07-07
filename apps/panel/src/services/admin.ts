@@ -124,6 +124,33 @@ export async function saveMetaAppSettings(input: {
   await api.put('/org/settings', body)
 }
 
+// ---- Business profile (per WhatsApp number) ----
+export interface BusinessProfile {
+  about?: string
+  address?: string
+  description?: string
+  email?: string
+  vertical?: string
+  websites?: string[]
+  profile_picture_url?: string
+}
+
+export async function getBusinessProfile(accountId: string): Promise<BusinessProfile> {
+  const res = await api.get(`/accounts/${accountId}/business_profile`)
+  return (res.data as BusinessProfile) ?? {}
+}
+
+export async function updateBusinessProfile(accountId: string, input: BusinessProfile): Promise<void> {
+  await api.put(`/accounts/${accountId}/business_profile`, {
+    about: input.about || '',
+    address: input.address || '',
+    description: input.description || '',
+    email: input.email || '',
+    vertical: input.vertical || '',
+    websites: input.websites || []
+  })
+}
+
 export async function testAccount(id: string): Promise<{ ok: boolean; message?: string }> {
   try {
     const res = await api.post(`/accounts/${id}/test`)

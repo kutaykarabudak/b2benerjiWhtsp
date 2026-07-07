@@ -13,6 +13,9 @@ import {
   testAccount,
   getMetaAppSettings,
   saveMetaAppSettings,
+  getBusinessProfile,
+  updateBusinessProfile,
+  type BusinessProfile,
   type User,
   type Role,
   type WhatsAppAccount,
@@ -249,6 +252,55 @@ async function runTest(a: WhatsAppAccount) {
   testResult.value[a.id] = '…'
   const res = await testAccount(a.id)
   testResult.value[a.id] = res.ok ? '✓ Bağlantı başarılı' : '✗ ' + (res.message || 'Hata')
+}
+
+// Business profile editor (per account)
+const profileFor = ref<string | null>(null)
+const profileForm = ref<BusinessProfile & { websitesText: string }>({ websitesText: '' })
+const savingProfile = ref(false)
+const profileMsg = ref('')
+
+async function openProfile(a: WhatsAppAccount) {
+  if (profileFor.value === a.id) {
+    profileFor.value = null
+    return
+  }
+  profileFor.value = a.id
+  profileMsg.value = ''
+  try {
+    const p = await getBusinessProfile(a.id)
+    profileForm.value = {
+      about: p.about || '',
+      address: p.address || '',
+      description: p.description || '',
+      email: p.email || '',
+      websitesText: (p.websites || []).join(', ')
+    }
+  } catch {
+    profileForm.value = { websitesText: '' }
+    profileMsg.value = 'Profil yüklenemedi (numara aktif değil olabilir).'
+  }
+}
+
+async function saveProfile(a: WhatsAppAccount) {
+  savingProfile.value = true
+  profileMsg.value = ''
+  try {
+    await updateBusinessProfile(a.id, {
+      about: profileForm.value.about,
+      address: profileForm.value.address,
+      description: profileForm.value.description,
+      email: profileForm.value.email,
+      websites: profileForm.value.websitesText
+        ? profileForm.value.websitesText.split(',').map((w) => w.trim()).filter(Boolean)
+        : []
+    })
+    profileMsg.value = '✓ Kaydedildi.'
+  } catch (e: any) {
+    profileMsg.value = '✗ ' + (e?.response?.data?.message || 'Kaydedilemedi.')
+  } finally {
+    savingProfile.value = false
+  }
 }
 
 // ---- WhatsApp Web (QR) connector ----
@@ -553,11 +605,43 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
             </div>
           </div>
           <div class="account-actions">
+            <button @click="openProfile(a)">İşletme Profili</button>
             <button @click="runTest(a)">Bağlantıyı Test Et</button>
             <button class="danger-btn" @click="removeAccount(a)">Sil</button>
           </div>
         </div>
         <div v-if="testResult[a.id]" class="test-result muted small">{{ testResult[a.id] }}</div>
+
+        <div v-if="profileFor === a.id" class="profile-edit">
+          <div class="row">
+            <div class="field grow">
+              <label>Durum metni (about)</label>
+              <input v-model="profileForm.about" maxlength="139" placeholder="Ör. B2B enerji çözümleri" />
+            </div>
+            <div class="field grow">
+              <label>E-posta</label>
+              <input v-model="profileForm.email" placeholder="info@firma.com" />
+            </div>
+          </div>
+          <div class="field">
+            <label>Açıklama</label>
+            <input v-model="profileForm.description" placeholder="İşletme açıklaması" />
+          </div>
+          <div class="row">
+            <div class="field grow">
+              <label>Adres</label>
+              <input v-model="profileForm.address" placeholder="Adres" />
+            </div>
+            <div class="field grow">
+              <label>Web siteleri (virgülle)</label>
+              <input v-model="profileForm.websitesText" placeholder="https://..." />
+            </div>
+          </div>
+          <div class="meta-actions">
+            <span v-if="profileMsg" class="meta-msg small">{{ profileMsg }}</span>
+            <button class="primary" :disabled="savingProfile" @click="saveProfile(a)">Kaydet</button>
+          </div>
+        </div>
       </div>
     </section>
   </div>
@@ -628,4 +712,5 @@ tr:last-child td { border-bottom: none; }
 .account-name { font-weight: 600; }
 .account-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .test-result { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.profile-edit { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
 </style>

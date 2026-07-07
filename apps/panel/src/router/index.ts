@@ -20,6 +20,7 @@ const router = createRouter({
         { path: 'campaigns', name: 'campaigns', component: () => import('@/views/CampaignsView.vue') },
         { path: 'templates', name: 'templates', component: () => import('@/views/TemplatesView.vue') },
         { path: 'catalog', name: 'catalog', component: () => import('@/views/CatalogsView.vue') },
+        { path: 'analytics', name: 'analytics', component: () => import('@/views/AnalyticsView.vue') },
         { path: 'chatbot', name: 'chatbot', component: () => import('@/views/ChatbotView.vue') },
         { path: 'admin', name: 'admin', component: () => import('@/views/AdminView.vue') }
       ]

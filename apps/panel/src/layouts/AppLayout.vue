@@ -14,6 +14,7 @@ const nav = [
   { to: '/templates', label: 'Şablonlar', icon: '📄' },
   { to: '/catalog', label: 'Katalog', icon: '🛍️' },
   { to: '/chatbot', label: 'Chatbot', icon: '🤖' },
+  { to: '/analytics', label: 'Analitik', icon: '📊' },
   { to: '/admin', label: 'Yönetim', icon: '⚙️' }
 ]
 
