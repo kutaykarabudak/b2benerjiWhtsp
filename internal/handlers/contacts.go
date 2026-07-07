@@ -753,11 +753,12 @@ func (a *App) resolveWhatsAppAccount(orgID uuid.UUID, accountName string) (*mode
 	var account models.WhatsAppAccount
 
 	if accountName != "" {
-		if err := a.DB.Where("name = ? AND organization_id = ?", accountName, orgID).First(&account).Error; err != nil {
-			return nil, fmt.Errorf("WhatsApp account not found")
+		if err := a.DB.Where("name = ? AND organization_id = ?", accountName, orgID).First(&account).Error; err == nil {
+			a.decryptAccountSecrets(&account)
+			return &account, nil
 		}
-		a.decryptAccountSecrets(&account)
-		return &account, nil
+		// Named account is gone (e.g. channel deleted/renamed): fall through to
+		// the org default so existing conversations can still be replied to.
 	}
 
 	// Get default outgoing account

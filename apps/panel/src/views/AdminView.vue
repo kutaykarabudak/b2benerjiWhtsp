@@ -15,6 +15,7 @@ import {
   saveMetaAppSettings,
   getBusinessProfile,
   updateBusinessProfile,
+  updateProfilePicture,
   type BusinessProfile,
   type User,
   type Role,
@@ -279,6 +280,29 @@ async function openProfile(a: WhatsAppAccount) {
   } catch {
     profileForm.value = { websitesText: '' }
     profileMsg.value = 'Profil yüklenemedi (numara aktif değil olabilir).'
+  }
+}
+
+const photoInput = ref<HTMLInputElement | null>(null)
+const photoForAccount = ref<string | null>(null)
+
+function pickPhoto(a: WhatsAppAccount) {
+  photoForAccount.value = a.id
+  photoInput.value?.click()
+}
+
+async function onPhotoChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  const accId = photoForAccount.value
+  if (!file || !accId) return
+  profileMsg.value = 'Yükleniyor…'
+  try {
+    await updateProfilePicture(accId, file)
+    profileMsg.value = '✓ Profil fotoğrafı güncellendi.'
+  } catch (e: any) {
+    profileMsg.value = '✗ ' + (e?.response?.data?.message || 'Foto yüklenemedi.')
   }
 }
 
@@ -639,6 +663,8 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           </div>
           <div class="meta-actions">
             <span v-if="profileMsg" class="meta-msg small">{{ profileMsg }}</span>
+            <input ref="photoInput" type="file" accept="image/*" hidden @change="onPhotoChosen" />
+            <button type="button" @click="pickPhoto(a)">🖼️ Profil Fotoğrafı</button>
             <button class="primary" :disabled="savingProfile" @click="saveProfile(a)">Kaydet</button>
           </div>
         </div>

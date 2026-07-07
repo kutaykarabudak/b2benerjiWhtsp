@@ -140,6 +140,14 @@ export async function getBusinessProfile(accountId: string): Promise<BusinessPro
   return (res.data as BusinessProfile) ?? {}
 }
 
+export async function updateProfilePicture(accountId: string, file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  await api.post(`/accounts/${accountId}/business_profile/photo`, form, {
+    headers: { 'Content-Type': undefined as unknown as string }
+  })
+}
+
 export async function updateBusinessProfile(accountId: string, input: BusinessProfile): Promise<void> {
   await api.put(`/accounts/${accountId}/business_profile`, {
     about: input.about || '',
