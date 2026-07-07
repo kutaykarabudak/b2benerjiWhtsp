@@ -1,14 +1,36 @@
 :root {
-  --bg: #f5f6f8;
+  /* Surfaces */
+  --bg: #eef1f6;
+  --bg-2: #f6f8fb;
   --panel: #ffffff;
-  --border: #e3e6ea;
-  --text: #1f2430;
-  --muted: #6b7280;
-  --brand: #0b7d5a;
-  --brand-hover: #0a6d4e;
-  --danger: #c0392b;
-  --radius: 8px;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  --border: #e5e8ef;
+  --border-strong: #d5dae3;
+
+  /* Text */
+  --text: #141922;
+  --muted: #6b7688;
+
+  /* Brand */
+  --brand: #0d9668;
+  --brand-hover: #0b805a;
+  --brand-soft: rgba(13, 150, 104, 0.1);
+  --brand-ring: rgba(13, 150, 104, 0.22);
+
+  --danger: #e04b4b;
+  --danger-soft: rgba(224, 75, 75, 0.1);
+
+  /* Shape */
+  --radius-sm: 8px;
+  --radius: 11px;
+  --radius-lg: 16px;
+
+  /* Elevation */
+  --shadow-sm: 0 1px 2px rgba(20, 25, 34, 0.05), 0 1px 1px rgba(20, 25, 34, 0.04);
+  --shadow: 0 4px 12px rgba(20, 25, 34, 0.07), 0 1px 3px rgba(20, 25, 34, 0.05);
+  --shadow-lg: 0 12px 32px rgba(20, 25, 34, 0.12);
+
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -19,42 +41,85 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.01em;
 }
 
-a { color: inherit; text-decoration: none; }
+a { color: var(--brand); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
+h1, h2, h3 { letter-spacing: -0.02em; }
+
+/* --- Buttons --- */
 button {
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   background: var(--panel);
-  border-radius: var(--radius);
-  padding: 8px 14px;
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 8px 15px;
+  line-height: 1.2;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
 }
+button:hover { background: var(--bg-2); border-color: #c4cbd6; }
+button:active { transform: translateY(1px); }
+button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--brand-ring); }
 
 button.primary {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
+  box-shadow: 0 1px 2px rgba(13, 150, 104, 0.35), 0 2px 8px rgba(13, 150, 104, 0.18);
 }
-button.primary:hover { background: var(--brand-hover); }
-button:disabled { opacity: 0.6; cursor: default; }
+button.primary:hover { background: var(--brand-hover); border-color: var(--brand-hover); }
 
+button.danger-btn, button.danger-btn:hover {
+  color: var(--danger);
+  border-color: var(--border);
+}
+button.danger-btn:hover { background: var(--danger-soft); border-color: rgba(224, 75, 75, 0.35); }
+
+button:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+/* --- Form controls --- */
 input, select, textarea {
   font: inherit;
-  padding: 9px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: var(--panel);
   color: var(--text);
   width: 100%;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+input::placeholder, textarea::placeholder { color: #9aa4b2; }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+input[type='checkbox'] { width: auto; accent-color: var(--brand); }
+label { font-weight: 500; }
 
+/* --- Card --- */
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   padding: 20px;
+  box-shadow: var(--shadow-sm);
 }
 
 .muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+/* --- Scrollbars --- */
+* { scrollbar-width: thin; scrollbar-color: #cbd2dc transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #cbd2dc; border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #b3bcc9; background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }

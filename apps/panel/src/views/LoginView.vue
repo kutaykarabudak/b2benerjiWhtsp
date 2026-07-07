@@ -31,6 +31,7 @@ async function submit() {
 <template>
   <div class="login-wrap">
     <form class="card login-card" @submit.prevent="submit">
+      <div class="login-brand"><span class="brand-mark">B</span></div>
       <h1>B2B Panel</h1>
       <p class="muted">Devam etmek için giriş yapın</p>
 
@@ -63,19 +64,34 @@ async function submit() {
   display: grid;
   place-items: center;
   padding: 24px;
+  background:
+    radial-gradient(1000px 500px at 15% -10%, rgba(13, 150, 104, 0.14), transparent 60%),
+    radial-gradient(900px 500px at 100% 110%, rgba(13, 150, 104, 0.1), transparent 55%),
+    var(--bg);
 }
-.forgot-link { background: transparent; border: none; color: var(--brand); font-size: 13px; margin-top: 10px; padding: 4px; cursor: pointer; align-self: center; }
-.forgot-box { font-size: 13px; line-height: 1.5; margin-top: 4px; padding: 10px; background: var(--bg); border-radius: var(--radius); }
+.forgot-link { background: transparent; border: none; box-shadow: none; color: var(--brand); font-size: 13px; margin-top: 10px; padding: 4px; cursor: pointer; align-self: center; }
+.forgot-link:hover { background: transparent; text-decoration: underline; }
+.forgot-box { font-size: 13px; line-height: 1.5; margin-top: 4px; padding: 12px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
 .login-card {
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 30px 28px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
 }
-.login-card h1 { margin: 0; font-size: 22px; }
-.login-card p { margin: 0 0 8px; }
+.login-brand { display: flex; justify-content: center; margin-bottom: 6px; }
+.login-brand .brand-mark {
+  display: grid; place-items: center;
+  width: 52px; height: 52px; border-radius: 15px;
+  background: var(--brand); color: #fff; font-size: 26px; font-weight: 700;
+  box-shadow: 0 6px 18px rgba(13, 150, 104, 0.4);
+}
+.login-card h1 { margin: 0; font-size: 23px; text-align: center; }
+.login-card p { margin: 0 0 10px; text-align: center; }
 .login-card label { margin-top: 8px; font-size: 13px; color: var(--muted); }
-.login-card button { margin-top: 16px; }
-.error { color: var(--danger); margin-top: 8px; }
+.login-card > button.primary { margin-top: 18px; padding: 11px; font-size: 15px; }
+.error { color: var(--danger); margin-top: 8px; text-align: center; }
 </style>

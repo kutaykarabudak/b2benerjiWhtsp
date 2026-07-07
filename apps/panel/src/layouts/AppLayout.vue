@@ -43,7 +43,7 @@ async function logout() {
     <div v-if="drawerOpen" class="backdrop" @click="drawerOpen = false"></div>
 
     <aside class="sidebar" :class="{ open: drawerOpen }">
-      <div class="brand">B2B Panel</div>
+      <div class="brand"><span class="brand-mark">B</span> B2B Panel</div>
       <nav>
         <router-link
           v-for="item in nav"
@@ -73,29 +73,49 @@ async function logout() {
 .mobile-topbar { display: none; }
 
 .sidebar {
-  width: 220px;
+  width: 238px;
   flex-shrink: 0;
   background: var(--panel);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 16px 12px;
+  padding: 16px 14px;
 }
-.brand { font-weight: 700; font-size: 16px; padding: 4px 8px 16px; }
-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.nav-item {
+.brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 10px;
-  border-radius: var(--radius);
-  color: var(--muted);
+  font-weight: 700;
+  font-size: 16px;
+  padding: 6px 6px 18px;
 }
-.nav-item:hover { background: var(--bg); color: var(--text); }
-.nav-item.router-link-active { background: var(--bg); color: var(--brand); font-weight: 600; }
-.icon { width: 18px; text-align: center; }
-.sidebar-footer { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
-.who { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 15px;
+  box-shadow: 0 2px 6px rgba(13, 150, 104, 0.35);
+}
+nav { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: var(--muted);
+  font-weight: 500;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.nav-item:hover { background: var(--bg-2); color: var(--text); }
+.nav-item.router-link-active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+.icon { width: 20px; text-align: center; font-size: 16px; }
+.sidebar-footer { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; margin-top: 6px; border-top: 1px solid var(--border); }
+.who { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 4px; }
 .content { flex: 1; overflow: auto; min-width: 0; }
 
 /* --- Mobile: sidebar becomes a hamburger drawer --- */
