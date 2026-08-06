@@ -57,6 +57,63 @@ export interface SignupResult {
   waba_id?: string
 }
 
+// Session info Meta posts from the Embedded Signup popup (WA_EMBEDDED_SIGNUP).
+// The definitive waba_id/phone_number_id arrive here, NOT in authResponse.
+interface SessionInfo {
+  event?: string // FINISH | FINISH_ONLY_WABA | CANCEL | ERROR
+  phone_number_id?: string
+  waba_id?: string
+  business_id?: string
+  current_step?: string
+  error_message?: string
+}
+
+let lastSessionInfo: SessionInfo | null = null
+let sessionListenerAttached = false
+let sessionInfoWaiter: ((info: SessionInfo | null) => void) | null = null
+
+function isFacebookOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname
+    return hostname === 'facebook.com' || hostname.endsWith('.facebook.com')
+  } catch {
+    return false
+  }
+}
+
+function waitForSessionInfo(timeoutMs = 1500): Promise<SessionInfo | null> {
+  if (lastSessionInfo) return Promise.resolve(lastSessionInfo)
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      if (sessionInfoWaiter === finish) sessionInfoWaiter = null
+      resolve(lastSessionInfo)
+    }, timeoutMs)
+    const finish = (info: SessionInfo | null) => {
+      window.clearTimeout(timeout)
+      if (sessionInfoWaiter === finish) sessionInfoWaiter = null
+      resolve(info)
+    }
+    sessionInfoWaiter = finish
+  })
+}
+
+function attachSessionInfoListener() {
+  if (sessionListenerAttached) return
+  sessionListenerAttached = true
+  window.addEventListener('message', (event: MessageEvent) => {
+    if (typeof event.origin !== 'string' || !isFacebookOrigin(event.origin)) return
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data
+      if (data?.type === 'WA_EMBEDDED_SIGNUP') {
+        lastSessionInfo = { ...(data.data || {}), event: data.event }
+        sessionInfoWaiter?.(lastSessionInfo)
+      }
+    } catch {
+      /* non-JSON messages from facebook.com are irrelevant */
+    }
+  })
+}
+
 // Launches Meta's Embedded Signup popup. coexistence=true onboards a number that
 // stays live on the WhatsApp Business app (whatsapp_business_app_onboarding).
 export function launchWhatsAppSignup(
@@ -68,26 +125,40 @@ export function launchWhatsAppSignup(
       reject(new Error('Facebook SDK henüz yüklenmedi.'))
       return
     }
+    attachSessionInfoListener()
+    lastSessionInfo = null
     const loginOptions: any = {
       config_id: cfg.config_id,
       response_type: 'code',
       override_default_response_type: true,
       extras: coexistence
-        ? { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3', version: 'v3' }
-        : { setup: {} }
+        ? { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' }
+        : { setup: {}, sessionInfoVersion: '3' }
     }
+    // Meta's JS SDK explicitly validates this callback as a plain Function.
+    // An `async` callback has the internal type "asyncfunction" and recent SDK
+    // builds reject it before opening the popup. Keep this callback synchronous
+    // and continue the asynchronous session-info wait through a Promise chain.
     window.FB.login((response: any) => {
+      void Promise.resolve(lastSessionInfo || waitForSessionInfo()).then((si) => {
+        // The OAuth callback and WA_EMBEDDED_SIGNUP postMessage are separate
+        // browser events; either one can arrive first.
       if (response.authResponse?.code) {
         resolve({
           code: response.authResponse.code,
-          phone_number_id: response.authResponse.phone_number_id,
-          waba_id: response.authResponse.waba_id
+          phone_number_id: si?.phone_number_id || response.authResponse.phone_number_id,
+          waba_id: si?.waba_id || response.authResponse.waba_id
         })
       } else if (response.error) {
         reject(new Error(response.error.message || 'Facebook hatası'))
+      } else if (si?.event === 'ERROR' && si.error_message) {
+        reject(new Error('Meta hatası: ' + si.error_message))
+      } else if (si?.event === 'CANCEL' && si.current_step) {
+        reject(new Error(`Akış "${si.current_step}" adımında yarıda kaldı.`))
       } else {
-        reject(new Error('Giriş iptal edildi.'))
+        reject(new Error('Giriş iptal edildi (popup kapandı veya izin verilmedi).'))
       }
+      }).catch(reject)
     }, loginOptions)
   })
 }

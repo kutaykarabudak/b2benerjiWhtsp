@@ -80,6 +80,34 @@ func TestApp_ListContacts(t *testing.T) {
 		assert.Empty(t, resp.Data.Contacts)
 	})
 
+	t.Run("has_messages excludes contacts without conversation history", func(t *testing.T) {
+		app := newTestApp(t)
+		org := testutil.CreateTestOrganization(t, app.DB)
+		adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+		user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+
+		withHistory := testutil.CreateTestContact(t, app.DB, org.ID)
+		testutil.CreateTestContact(t, app.DB, org.ID)
+		now := time.Now()
+		require.NoError(t, app.DB.Model(withHistory).Update("last_message_at", now).Error)
+
+		req := testutil.NewGETRequest(t)
+		testutil.SetAuthContext(req, org.ID, user.ID)
+		testutil.SetQueryParam(req, "has_messages", "true")
+
+		require.NoError(t, app.ListContacts(req))
+		var resp struct {
+			Data struct {
+				Contacts []handlers.ContactResponse `json:"contacts"`
+				Total    int64                      `json:"total"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal(testutil.GetResponseBody(req), &resp))
+		assert.Equal(t, int64(1), resp.Data.Total)
+		require.Len(t, resp.Data.Contacts, 1)
+		assert.Equal(t, withHistory.ID, resp.Data.Contacts[0].ID)
+	})
+
 	t.Run("filter by search on phone number", func(t *testing.T) {
 		app := newTestApp(t)
 		org := testutil.CreateTestOrganization(t, app.DB)

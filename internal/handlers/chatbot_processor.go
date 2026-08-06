@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -131,6 +132,16 @@ type IncomingTextMessage struct {
 			Type  string `json:"type,omitempty"`
 		} `json:"phones,omitempty"`
 	} `json:"contacts,omitempty"`
+	Order *struct {
+		CatalogID    string `json:"catalog_id"`
+		Text         string `json:"text,omitempty"`
+		ProductItems []struct {
+			ProductRetailerID string `json:"product_retailer_id"`
+			Quantity          int    `json:"quantity"`
+			ItemPrice         any    `json:"item_price"`
+			Currency          string `json:"currency"`
+		} `json:"product_items"`
+	} `json:"order,omitempty"`
 }
 
 // processIncomingMessageFull processes incoming WhatsApp messages with chatbot logic
@@ -191,7 +202,7 @@ func (a *App) processIncomingMessageFull(phoneNumberID string, msg IncomingTextM
 	if msg.Context != nil && msg.Context.ID != "" {
 		replyToWAMID = msg.Context.ID
 	}
-	a.saveIncomingMessage(account, contact, msg.ID, messageType, messageText, mediaInfo, replyToWAMID)
+	a.saveIncomingMessage(account, contact, msg.ID, messageType, messageText, mediaInfo, replyToWAMID, extracted.InteractiveData)
 
 	// Clear chatbot tracking since client has replied
 	a.ClearContactChatbotTracking(contact.ID)
@@ -1388,6 +1399,7 @@ type ExtractedMessage struct {
 	Media            *MediaInfo
 	ButtonID         string         // used by chatbot routing only
 	FlowResponseData map[string]any // used by chatbot routing only
+	InteractiveData  models.JSONB   // structured payload shown by the inbox
 }
 
 // extractMessageContent walks an IncomingTextMessage and returns the derived
@@ -1530,9 +1542,71 @@ func (a *App) extractMessageContent(ctx context.Context, msg IncomingTextMessage
 		if jsonBytes, err := json.Marshal(contactsData); err == nil {
 			extracted.Text = string(jsonBytes)
 		}
+	} else if msg.Type == "order" && msg.Order != nil {
+		extracted.Text = "Sipariş"
+		extracted.InteractiveData = a.buildIncomingOrderData(account, msg)
 	}
 
 	return extracted
+}
+
+// buildIncomingOrderData keeps the complete Commerce order payload and enriches
+// its retailer IDs with the product information already synchronized locally.
+func (a *App) buildIncomingOrderData(account *models.WhatsAppAccount, msg IncomingTextMessage) models.JSONB {
+	data := models.JSONB{
+		"type":       "order",
+		"catalog_id": msg.Order.CatalogID,
+		"text":       msg.Order.Text,
+	}
+
+	retailerIDs := make([]string, 0, len(msg.Order.ProductItems))
+	for _, item := range msg.Order.ProductItems {
+		if item.ProductRetailerID != "" {
+			retailerIDs = append(retailerIDs, item.ProductRetailerID)
+		}
+	}
+	productsByRetailerID := make(map[string]models.CatalogProduct)
+	if len(retailerIDs) > 0 {
+		var products []models.CatalogProduct
+		if err := a.DB.Where("organization_id = ? AND retailer_id IN ?", account.OrganizationID, retailerIDs).Find(&products).Error; err != nil {
+			a.Log.Warn("Could not enrich order products", "error", err)
+		} else {
+			for _, product := range products {
+				productsByRetailerID[product.RetailerID] = product
+			}
+		}
+	}
+
+	items := make([]map[string]any, 0, len(msg.Order.ProductItems))
+	total := 0.0
+	currency := ""
+	for _, item := range msg.Order.ProductItems {
+		itemPrice := fmt.Sprint(item.ItemPrice)
+		unitPrice, _ := strconv.ParseFloat(itemPrice, 64)
+		lineTotal := unitPrice * float64(item.Quantity)
+		total += lineTotal
+		if currency == "" {
+			currency = item.Currency
+		}
+		orderItem := map[string]any{
+			"retailer_id": item.ProductRetailerID,
+			"quantity":    item.Quantity,
+			"item_price":  itemPrice,
+			"currency":    item.Currency,
+			"line_total":  lineTotal,
+		}
+		if product, ok := productsByRetailerID[item.ProductRetailerID]; ok {
+			orderItem["name"] = product.Name
+			orderItem["image_url"] = product.ImageURL
+			orderItem["meta_product_id"] = product.MetaProductID
+		}
+		items = append(items, orderItem)
+	}
+	data["items"] = items
+	data["item_count"] = len(items)
+	data["total"] = total
+	data["currency"] = currency
+	return data
 }
 
 // MediaInfo holds media-related information for an incoming message
@@ -1543,7 +1617,7 @@ type MediaInfo struct {
 }
 
 // saveIncomingMessage saves an incoming message to the messages table
-func (a *App) saveIncomingMessage(account *models.WhatsAppAccount, contact *models.Contact, whatsappMsgID, msgType, content string, mediaInfo *MediaInfo, replyToWAMID string) {
+func (a *App) saveIncomingMessage(account *models.WhatsAppAccount, contact *models.Contact, whatsappMsgID, msgType, content string, mediaInfo *MediaInfo, replyToWAMID string, structuredData ...models.JSONB) {
 	now := time.Now()
 
 	message := models.Message{
@@ -1556,6 +1630,9 @@ func (a *App) saveIncomingMessage(account *models.WhatsAppAccount, contact *mode
 		MessageType:       models.MessageType(msgType),
 		Content:           content,
 		Status:            models.MessageStatusReceived,
+	}
+	if len(structuredData) > 0 && structuredData[0] != nil {
+		message.InteractiveData = structuredData[0]
 	}
 
 	// Handle reply context - look up the original message by WhatsApp message ID
@@ -1596,7 +1673,13 @@ func (a *App) saveIncomingMessage(account *models.WhatsAppAccount, contact *mode
 	if len(preview) > 100 {
 		preview = preview[:97] + "..."
 	}
-	if msgType != "text" && msgType != "button_reply" && msgType != "nfm_reply" {
+	if msgType == "order" && message.InteractiveData != nil {
+		if count, ok := message.InteractiveData["item_count"].(int); ok {
+			preview = fmt.Sprintf("[Sipariş · %d ürün]", count)
+		} else {
+			preview = "[Sipariş]"
+		}
+	} else if msgType != "text" && msgType != "button_reply" && msgType != "nfm_reply" {
 		preview = "[" + msgType + "]"
 	}
 

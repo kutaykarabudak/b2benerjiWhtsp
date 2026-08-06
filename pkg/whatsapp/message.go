@@ -75,6 +75,35 @@ func (c *Client) SendLocationMessage(ctx context.Context, account *Account, rcpt
 	return parseMessageID(respBody)
 }
 
+// SendContactMessage sends a WhatsApp contact card.
+func (c *Client) SendContactMessage(ctx context.Context, account *Account, rcpt Recipient, name, phone, email, company string) (string, error) {
+	contact := map[string]any{
+		"name": map[string]any{"formatted_name": name},
+		"phones": []map[string]any{{
+			"phone": phone,
+			"type":  "WORK",
+		}},
+	}
+	if email != "" {
+		contact["emails"] = []map[string]any{{"email": email, "type": "WORK"}}
+	}
+	if company != "" {
+		contact["org"] = map[string]any{"company": company}
+	}
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"type":              "contacts",
+		"contacts":          []map[string]any{contact},
+	}
+	rcpt.SetOnPayload(payload)
+	respBody, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to send contact message: %w", err)
+	}
+	return parseMessageID(respBody)
+}
+
 // SendInteractiveButtons sends an interactive message with buttons or list
 // If buttons <= 3, sends as buttons; if 4-10, sends as list
 func (c *Client) SendInteractiveButtons(ctx context.Context, account *Account, rcpt Recipient, bodyText string, buttons []Button) (string, error) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import {
   listCampaigns,
   createCampaign,
@@ -20,6 +21,8 @@ const campaigns = ref<Campaign[]>([])
 const accounts = ref<Account[]>([])
 const templates = ref<Template[]>([])
 const loading = ref(false)
+const route = useRoute()
+const crmFilterActive = !!(route.query.tags || route.query.has_purchased || route.query.min_purchase_score || route.query.city || route.query.district)
 
 // Create form
 const showCreate = ref(false)
@@ -69,9 +72,56 @@ async function submitCreate() {
 }
 
 // Contact picker
-const pickerContacts = ref<{ id: string; name: string; phone_number: string }[]>([])
+const pickerContacts = ref<{ id: string; name: string; phone_number: string; city: string; district: string; purchase_score: number; has_purchased: boolean; tags: string[] }[]>([])
 const picked = ref<Set<string>>(new Set())
 const showPicker = ref(false)
+const pickerLoading = ref(false)
+const pickerError = ref('')
+const pickerFilters = ref({
+  category: String(route.query.tags || ''),
+  purchased: String(route.query.has_purchased || ''),
+  minScore: String(route.query.min_purchase_score || ''),
+  city: String(route.query.city || ''),
+  district: String(route.query.district || '')
+})
+
+async function loadPickerContacts() {
+  pickerLoading.value = true
+  pickerError.value = ''
+  picked.value = new Set()
+  try {
+    const list = await listContacts('', {
+      tags: pickerFilters.value.category.trim() || undefined,
+      has_purchased: pickerFilters.value.purchased ? pickerFilters.value.purchased === 'yes' : undefined,
+      min_purchase_score: pickerFilters.value.minScore ? Number(pickerFilters.value.minScore) : undefined,
+      city: pickerFilters.value.city.trim() || undefined,
+      district: pickerFilters.value.district.trim() || undefined
+    })
+    pickerContacts.value = list.map((x) => ({
+      id: x.id,
+      name: x.name || x.profile_name || x.phone_number,
+      phone_number: x.phone_number,
+      city: x.city || '', district: x.district || '', purchase_score: x.purchase_score || 0,
+      has_purchased: !!x.has_purchased, tags: x.tags || []
+    }))
+  } catch (e: any) {
+    pickerContacts.value = []
+    pickerError.value = e?.response?.data?.message || 'Kişiler filtrelenemedi.'
+  } finally {
+    pickerLoading.value = false
+  }
+}
+
+function clearPickerFilters() {
+  pickerFilters.value = { category: '', purchased: '', minScore: '', city: '', district: '' }
+  loadPickerContacts()
+}
+
+function toggleAllFiltered() {
+  picked.value = picked.value.size === pickerContacts.value.length
+    ? new Set()
+    : new Set(pickerContacts.value.map((contact) => contact.id))
+}
 
 async function openRecipients(c: Campaign) {
   const opening = recipientsFor.value !== c.id
@@ -79,18 +129,7 @@ async function openRecipients(c: Campaign) {
   recipientText.value = ''
   showPicker.value = false
   picked.value = new Set()
-  if (opening && !pickerContacts.value.length) {
-    try {
-      const list = await listContacts('')
-      pickerContacts.value = list.map((x) => ({
-        id: x.id,
-        name: x.name || x.profile_name || x.phone_number,
-        phone_number: x.phone_number
-      }))
-    } catch {
-      /* sessiz */
-    }
-  }
+  if (opening) await loadPickerContacts()
 }
 
 function togglePick(id: string) {
@@ -163,6 +202,7 @@ onMounted(loadAll)
       </div>
       <button class="primary" @click="showCreate = !showCreate">＋ Yeni Kampanya</button>
     </header>
+    <div v-if="crmFilterActive" class="card crm-notice">Kişiler ekranındaki CRM filtreleri alıcı seçimine uygulandı. Kampanyada “Alıcı Ekle → Kişilerden Seç” dediğinizde yalnızca hedef kitle görüntülenir.</div>
 
     <!-- Create form -->
     <form v-if="showCreate" class="card create-form" @submit.prevent="submitCreate">
@@ -249,12 +289,25 @@ onMounted(loadAll)
             {{ picked.size }} kişiyi ekle
           </button>
         </div>
-        <div v-if="showPicker" class="picker-list">
+        <div v-if="showPicker" class="picker-panel">
+          <div class="picker-filter-head"><div><b>CRM hedef kitlesi</b><div class="muted small">Filtreler birlikte uygulanır.</div></div><span class="target-count">{{ pickerLoading ? 'Aranıyor…' : pickerContacts.length + ' kişi bulundu' }}</span></div>
+          <div class="picker-filters">
+            <div class="field"><label>Şehir</label><input v-model="pickerFilters.city" placeholder="Ör. Antalya" @keyup.enter="loadPickerContacts" /></div>
+            <div class="field"><label>İlçe</label><input v-model="pickerFilters.district" placeholder="Ör. Muratpaşa" @keyup.enter="loadPickerContacts" /></div>
+            <div class="field"><label>Alışveriş durumu</label><select v-model="pickerFilters.purchased"><option value="">Tümü</option><option value="yes">Daha önce alanlar</option><option value="no">Daha önce almayanlar</option></select></div>
+            <div class="field"><label>Minimum alım puanı</label><input v-model="pickerFilters.minScore" type="number" min="0" max="100" placeholder="Ör. 70" @keyup.enter="loadPickerContacts" /></div>
+            <div class="field"><label>Kategori</label><input v-model="pickerFilters.category" placeholder="Ör. VIP" @keyup.enter="loadPickerContacts" /></div>
+          </div>
+          <div class="picker-filter-actions"><button type="button" @click="clearPickerFilters">Temizle</button><button type="button" class="primary" :disabled="pickerLoading" @click="loadPickerContacts">{{ pickerLoading ? 'Filtreleniyor…' : 'Filtreleri Uygula' }}</button></div>
+          <p v-if="pickerError" class="error">{{ pickerError }}</p>
+          <div class="select-all-row"><label><input type="checkbox" :checked="pickerContacts.length > 0 && picked.size === pickerContacts.length" @change="toggleAllFiltered" /> Filtrelenenlerin tümünü seç</label><b>{{ picked.size }} seçili</b></div>
+          <div class="picker-list">
           <label v-for="pc in pickerContacts" :key="pc.id" class="picker-item">
             <input type="checkbox" :checked="picked.has(pc.id)" @change="togglePick(pc.id)" />
-            {{ pc.name }} <span class="muted small">· {{ pc.phone_number }}</span>
+            <span class="picker-person"><b>{{ pc.name }}</b><span class="muted small">{{ pc.phone_number }} · {{ [pc.city, pc.district].filter(Boolean).join(' / ') || 'Konum yok' }} · {{ pc.purchase_score }} puan<span v-if="pc.has_purchased"> · Alım yaptı</span></span></span>
           </label>
-          <div v-if="!pickerContacts.length" class="muted small">Kayıtlı kişi yok.</div>
+          <div v-if="!pickerLoading && !pickerContacts.length" class="muted small">Bu filtrelere uygun kişi bulunamadı.</div>
+          </div>
         </div>
 
         <div class="form-actions">
@@ -275,6 +328,7 @@ onMounted(loadAll)
 .center { text-align: center; padding: 24px; }
 
 .create-form { margin-bottom: 16px; }
+.crm-notice { margin-bottom: 12px; color: #0a6d4e; font-size: 13px; }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .field { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 4px; }
 .field label { font-size: 12px; color: var(--muted); }
@@ -299,7 +353,17 @@ onMounted(loadAll)
 .recipients { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
 .recipients textarea { width: 100%; font-family: inherit; }
 .picker-bar { display: flex; gap: 8px; margin-top: 8px; }
-.picker-list { max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.picker-panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-top: 8px; }
+.picker-filter-head, .select-all-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.target-count { background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+.picker-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 8px; margin-top: 10px; }
+.picker-filters .field { min-width: 0; }
+.picker-filter-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.select-all-row { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; font-size: 13px; }
+.select-all-row label { display: flex; align-items: center; gap: 7px; }
+.select-all-row input { width: auto; }
+.picker-list { max-height: 260px; overflow-y: auto; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .picker-item { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .picker-item input { width: auto; }
+.picker-person { display: flex; flex-direction: column; gap: 2px; }
 </style>

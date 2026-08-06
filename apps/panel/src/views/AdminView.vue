@@ -9,6 +9,8 @@ import {
   listRoles,
   listAccounts,
   createAccount,
+  updateAccount,
+  updateAccountCatalogBusinessID,
   deleteAccount,
   testAccount,
   getMetaAppSettings,
@@ -116,21 +118,60 @@ async function resetPassword(u: User) {
 const accounts = ref<WhatsAppAccount[]>([])
 const loadingAccounts = ref(false)
 const showAccountForm = ref(false)
+const editingAccountId = ref<string | null>(null)
 const accountForm = ref<AccountInput>(blankAccount())
 const savingAccount = ref(false)
 const accountError = ref('')
 const testResult = ref<Record<string, string>>({})
+const catalogSettingsFor = ref<string | null>(null)
+const catalogSettingsValue = ref('')
+const savingCatalogSettings = ref(false)
+const catalogSettingsMsg = ref('')
 
 function blankAccount(): AccountInput {
   return {
     name: '',
     phone_id: '',
     business_id: '',
+    catalog_business_id: '',
     access_token: '',
     app_id: '',
     app_secret: '',
-    webhook_verify_token: ''
+    webhook_verify_token: '',
+    api_version: 'v24.0'
   }
+}
+
+function startNewAccount() {
+  editingAccountId.value = null
+  accountForm.value = blankAccount()
+  accountError.value = ''
+  showAccountForm.value = true
+}
+
+function editAccount(a: WhatsAppAccount) {
+  editingAccountId.value = a.id
+  accountForm.value = {
+    name: a.name,
+    phone_id: a.phone_id,
+    business_id: a.business_id,
+    catalog_business_id: a.catalog_business_id || '',
+    access_token: '',
+    app_id: a.app_id || '',
+    app_secret: '',
+    webhook_verify_token: a.webhook_verify_token || '',
+    api_version: a.api_version || 'v24.0'
+  }
+  accountError.value = ''
+  showAccountForm.value = true
+  window.setTimeout(() => document.getElementById('channel-account-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+}
+
+function cancelAccountForm() {
+  showAccountForm.value = false
+  editingAccountId.value = null
+  accountForm.value = blankAccount()
+  accountError.value = ''
 }
 
 async function loadAccounts() {
@@ -185,8 +226,9 @@ async function saveMeta() {
 const esConfig = ref<EmbeddedSignupConfig | null>(null)
 const connecting = ref(false)
 const connectMsg = ref('')
-// Coexistence (number stays live on the WhatsApp Business app) requires Tech
-// Provider status; off by default so the standard onboarding works today.
+// Coexistence: the number stays live on the WhatsApp Business app while the
+// Cloud API is attached. Meta gates this Embedded Signup variation behind its
+// business/access verification and Tech Provider onboarding requirements.
 const coexistenceMode = ref(false)
 
 async function initEmbeddedSignup() {
@@ -217,7 +259,12 @@ async function connectWhatsApp() {
     }
     await loadAccounts()
   } catch (e: any) {
-    connectMsg.value = '✗ ' + (e?.message || e?.response?.data?.message || 'Bağlantı başarısız.')
+    // Axios' generic "Request failed with status code 400" hides the useful
+    // Meta/backend explanation unless the response payload is preferred.
+    const serverMessage = e?.response?.data?.message
+      || e?.response?.data?.error?.message
+      || e?.response?.data?.error
+    connectMsg.value = '✗ ' + (serverMessage || e?.message || 'Bağlantı başarısız.')
   } finally {
     connecting.value = false
   }
@@ -226,15 +273,19 @@ async function connectWhatsApp() {
 async function submitAccount() {
   accountError.value = ''
   const f = accountForm.value
-  if (!f.name.trim() || !f.phone_id.trim() || !f.business_id.trim() || !f.access_token.trim()) {
-    accountError.value = 'Ad, Phone ID, Business ID ve Access Token zorunlu.'
+  if (!f.name.trim() || !f.phone_id.trim() || !f.business_id.trim() || (!editingAccountId.value && !f.access_token.trim())) {
+    accountError.value = editingAccountId.value
+      ? 'Ad, Phone ID ve Business ID zorunlu.'
+      : 'Ad, Phone ID, Business ID ve Access Token zorunlu.'
     return
   }
   savingAccount.value = true
   try {
-    await createAccount(f)
+    if (editingAccountId.value) await updateAccount(editingAccountId.value, f)
+    else await createAccount(f)
     accountForm.value = blankAccount()
     showAccountForm.value = false
+    editingAccountId.value = null
     await loadAccounts()
   } catch (e: any) {
     accountError.value = e?.response?.data?.message || 'Hesap eklenemedi.'
@@ -253,6 +304,35 @@ async function runTest(a: WhatsAppAccount) {
   testResult.value[a.id] = '…'
   const res = await testAccount(a.id)
   testResult.value[a.id] = res.ok ? '✓ Bağlantı başarılı' : '✗ ' + (res.message || 'Hata')
+}
+
+function openCatalogSettings(a: WhatsAppAccount) {
+  if (catalogSettingsFor.value === a.id) {
+    catalogSettingsFor.value = null
+    return
+  }
+  catalogSettingsFor.value = a.id
+  catalogSettingsValue.value = a.catalog_business_id || ''
+  catalogSettingsMsg.value = ''
+}
+
+async function saveCatalogSettings(a: WhatsAppAccount) {
+  const value = catalogSettingsValue.value.trim()
+  if (!value) {
+    catalogSettingsMsg.value = 'Business Portfolio ID zorunlu.'
+    return
+  }
+  savingCatalogSettings.value = true
+  catalogSettingsMsg.value = ''
+  try {
+    await updateAccountCatalogBusinessID(a.id, value)
+    a.catalog_business_id = value
+    catalogSettingsMsg.value = '✓ Katalog ayarı kaydedildi.'
+  } catch (e: any) {
+    catalogSettingsMsg.value = '✗ ' + (e?.response?.data?.message || 'Kaydedilemedi.')
+  } finally {
+    savingCatalogSettings.value = false
+  }
 }
 
 // Business profile editor (per account)
@@ -480,13 +560,6 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
         </div>
         <div class="field">
           <label>
-            Meta Business Portfolio ID
-            <span class="muted small">(katalog için — Business Settings → İşletme bilgileri’ndeki ID)</span>
-          </label>
-          <input v-model="metaForm.meta_business_id" placeholder="ör. 23968095896159710" />
-        </div>
-        <div class="field">
-          <label>
             App Secret
             <span v-if="metaHasSecret" class="muted small">(kayıtlı — değiştirmek için yeni değer gir)</span>
           </label>
@@ -498,8 +571,11 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
         </div>
       </div>
         <p class="muted small adv-note">
-          Bu bölüm sadece yeşil "tek tık" Embedded Signup bağlama içindir ve Meta <b>Tech Provider</b> onayı gerektirir.
-          Onayın yoksa aşağıdaki <b>＋ Numara Ekle</b> (manuel) yolunu kullan.
+          Bu bölüm yeşil "tek tık" Embedded Signup bağlama içindir. Standart izinler uygulamada rolü olan
+          hesaplarla test edilebilir; ancak <b>WhatsApp Business App Coexistence</b> akışı Meta tarafından
+          işletme/erişim doğrulaması ve <b>Tech Provider onboarding</b> durumuna göre açılır. Meta “müşteri
+          katılımı gerçekleştiremiyor” uyarısı gösteriyorsa önce App Dashboard'daki <b>Required actions</b> ve
+          <b>Review</b> adımlarını tamamlayın. Sorun yaşarsanız <b>＋ Numara Ekle</b> manuel Cloud API yoludur.
         </p>
       </details>
 
@@ -541,7 +617,7 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           >
             {{ connecting ? 'Bağlanıyor…' : '🟢 Tek Tık Bağla' }}
           </button>
-          <button class="primary" @click="showAccountForm = !showAccountForm">＋ Numara Ekle</button>
+          <button class="primary" @click="startNewAccount">＋ Numara Ekle</button>
         </div>
       </div>
       <p class="ch-help muted small">
@@ -556,7 +632,10 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           Coexistence modu (numara telefonda + panelde birlikte)
         </label>
         <div v-if="coexistenceMode" class="cox-warn">
-          ⚠️ Coexistence, Meta <b>Tech Provider</b> statüsü gerektirir. Uygulaman Tech Provider değilse bu mod hata verir.
+          Numara telefondaki <b>WhatsApp Business</b> uygulamasında kalır; akışın sonunda çıkan <b>QR kodu telefonla
+          okutman</b> gerekir. Şartlar: numara uygulamada en az <b>7 gündür aktif</b>, uygulama sürümü
+          <b>2.24.17+</b> ve numaranın ülkesi coexistence desteğinde olmalı. ⚠️ Numara daha önce bir WABA'ya
+          (Cloud API'ye) kayıtlıysa Meta <b>1–2 ay bekleme</b> süresi uygulayabilir.
         </div>
         <div v-else>
           Standart bağlama: numara panele taşınır (telefondaki WhatsApp'tan çıkar). Config'in Meta'da
@@ -565,7 +644,13 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
       </div>
       <div v-if="connectMsg" class="card connect-msg">{{ connectMsg }}</div>
 
-      <form v-if="showAccountForm" class="card form" @submit.prevent="submitAccount">
+      <form v-if="showAccountForm" id="channel-account-form" class="card form" @submit.prevent="submitAccount">
+        <div class="form-title">
+          <div>
+            <b>{{ editingAccountId ? 'Kanalı düzenle' : 'Yeni WhatsApp kanalı' }}</b>
+            <div v-if="editingAccountId" class="muted small">Gizli alanları boş bırakırsanız kayıtlı değerler korunur.</div>
+          </div>
+        </div>
         <div class="row">
           <div class="field grow">
             <label>Kanal adı *</label>
@@ -587,23 +672,31 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           </div>
         </div>
         <div class="field">
-          <label>Access Token * <span class="muted small">(API Setup → token)</span></label>
-          <input v-model="accountForm.access_token" type="password" />
+          <label>Katalog Business Portfolio ID <span class="muted small">(Commerce Manager / İşletme bilgileri — WABA ID değildir)</span></label>
+          <input v-model="accountForm.catalog_business_id" placeholder="Bu hesaba ait Meta Business Portfolio ID" />
+        </div>
+        <div class="field">
+          <label>Access Token {{ editingAccountId ? '' : '*' }} <span class="muted small">{{ editingAccountId ? '(değiştirmek için yeni token girin)' : '(API Setup → token)' }}</span></label>
+          <input v-model="accountForm.access_token" type="password" autocomplete="new-password" :placeholder="editingAccountId && accounts.find(a => a.id === editingAccountId)?.has_access_token ? 'Kayıtlı tokenı korumak için boş bırakın' : ''" />
         </div>
         <div class="row">
           <div class="field grow">
             <label>App Secret (webhook imzası)</label>
-            <input v-model="accountForm.app_secret" type="password" />
+            <input v-model="accountForm.app_secret" type="password" autocomplete="new-password" :placeholder="editingAccountId && accounts.find(a => a.id === editingAccountId)?.has_app_secret ? 'Kayıtlı değeri korumak için boş bırakın' : ''" />
           </div>
           <div class="field grow">
             <label>Webhook Verify Token (boşsa otomatik)</label>
             <input v-model="accountForm.webhook_verify_token" />
           </div>
         </div>
+        <div class="field">
+          <label>Graph API sürümü</label>
+          <input v-model="accountForm.api_version" placeholder="v24.0" />
+        </div>
         <p v-if="accountError" class="error">{{ accountError }}</p>
         <div class="form-actions">
-          <button type="button" @click="showAccountForm = false">İptal</button>
-          <button class="primary" type="submit" :disabled="savingAccount">Kaydet</button>
+          <button type="button" @click="cancelAccountForm">İptal</button>
+          <button class="primary" type="submit" :disabled="savingAccount">{{ savingAccount ? 'Kaydediliyor…' : (editingAccountId ? 'Değişiklikleri Kaydet' : 'Kaydet') }}</button>
         </div>
       </form>
 
@@ -615,6 +708,7 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
           <div>
             <div class="account-name">{{ a.name }} <span class="tag">{{ a.status || 'active' }}</span></div>
             <div class="muted small">Phone ID: {{ a.phone_id }} · Business ID: {{ a.business_id }}</div>
+            <div class="muted small">Katalog Portfolio ID: {{ a.catalog_business_id || 'Ayarlanmadı' }}</div>
             <div class="muted small">
               Token: {{ a.has_access_token ? '✓' : '—' }} ·
               App Secret: {{ a.has_app_secret ? '✓' : '—' }} ·
@@ -622,12 +716,26 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
             </div>
           </div>
           <div class="account-actions">
+            <button class="edit-account-btn" @click="editAccount(a)">✎ Düzenle</button>
+            <button @click="openCatalogSettings(a)">Katalog Ayarı</button>
             <button @click="openProfile(a)">İşletme Profili</button>
             <button @click="runTest(a)">Bağlantıyı Test Et</button>
             <button class="danger-btn" @click="removeAccount(a)">Sil</button>
           </div>
         </div>
         <div v-if="testResult[a.id]" class="test-result muted small">{{ testResult[a.id] }}</div>
+
+        <div v-if="catalogSettingsFor === a.id" class="catalog-settings-edit">
+          <div class="catalog-settings-copy">
+            <b>Katalog Business Portfolio ID</b>
+            <span class="muted small">Meta Business Manager adresindeki <code>business_id</code> değeri. WABA Business ID ile aynı değildir.</span>
+          </div>
+          <input v-model="catalogSettingsValue" inputmode="numeric" placeholder="Ör. 23968095896159710" @keyup.enter="saveCatalogSettings(a)" />
+          <button class="primary" :disabled="savingCatalogSettings || !catalogSettingsValue.trim()" @click="saveCatalogSettings(a)">
+            {{ savingCatalogSettings ? 'Kaydediliyor…' : 'Kaydet' }}
+          </button>
+          <span v-if="catalogSettingsMsg" class="small catalog-settings-message">{{ catalogSettingsMsg }}</span>
+        </div>
 
         <div v-if="profileFor === a.id" class="profile-edit">
           <div class="row">
@@ -734,6 +842,7 @@ onBeforeUnmount(() => window.clearInterval(qrTimer))
 .connect-msg { margin-bottom: 12px; }
 
 .form { margin-bottom: 16px; display: flex; flex-direction: column; gap: 12px; }
+.form-title { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field.grow { flex: 1; min-width: 180px; }
@@ -757,8 +866,12 @@ tr:last-child td { border-bottom: none; }
 .account-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .account-name { font-weight: 600; }
 .account-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.edit-account-btn { color: var(--brand); border-color: #9ddcc2; background: var(--brand-soft); font-weight: 700; }
 .test-result { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.catalog-settings-edit { display: grid; grid-template-columns: minmax(220px,1fr) minmax(220px,310px) auto; align-items: center; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid #bde6d4; border-radius: 13px; background: var(--brand-soft); }
+.catalog-settings-copy { display: flex; flex-direction: column; gap: 2px; }.catalog-settings-copy code { color: var(--brand); }.catalog-settings-edit input { background: #fff; }.catalog-settings-message { grid-column: 1/-1; color: var(--muted); }
 .profile-edit { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 10px; }
 .photo-btn { border: 1px solid var(--border); background: var(--panel); border-radius: var(--radius); padding: 8px 14px; cursor: pointer; font-size: 14px; }
 .photo-btn:hover { background: var(--bg); }
+@media (max-width: 760px) { .account-head { flex-direction: column; }.account-actions { width: 100%; flex-wrap: wrap; }.catalog-settings-edit { grid-template-columns: 1fr; }.catalog-settings-message { grid-column: auto; } }
 </style>

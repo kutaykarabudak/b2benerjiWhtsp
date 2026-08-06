@@ -21,6 +21,7 @@ export interface WhatsAppAccount {
   app_id?: string
   phone_id: string
   business_id: string
+  catalog_business_id?: string
   webhook_verify_token?: string
   api_version?: string
   status?: string
@@ -71,10 +72,12 @@ export interface AccountInput {
   name: string
   phone_id: string
   business_id: string
+  catalog_business_id?: string
   access_token: string
   app_id?: string
   app_secret?: string
   webhook_verify_token?: string
+  api_version?: string
 }
 
 export async function createAccount(input: AccountInput): Promise<void> {
@@ -83,6 +86,10 @@ export async function createAccount(input: AccountInput): Promise<void> {
 
 export async function updateAccount(id: string, input: Partial<AccountInput>): Promise<void> {
   await api.put(`/accounts/${id}`, input)
+}
+
+export async function updateAccountCatalogBusinessID(id: string, catalogBusinessId: string): Promise<void> {
+  await api.put(`/accounts/${id}/catalog-settings`, { catalog_business_id: catalogBusinessId })
 }
 
 export async function deleteAccount(id: string): Promise<void> {
@@ -162,6 +169,9 @@ export async function updateBusinessProfile(accountId: string, input: BusinessPr
 export async function testAccount(id: string): Promise<{ ok: boolean; message?: string }> {
   try {
     const res = await api.post(`/accounts/${id}/test`)
+    if (res.data?.success === false) {
+      return { ok: false, message: res.data?.error || res.data?.message || 'Bağlantı başarısız.' }
+    }
     return { ok: true, message: res.data?.message }
   } catch (e: any) {
     return { ok: false, message: e?.response?.data?.message || 'Bağlantı başarısız.' }

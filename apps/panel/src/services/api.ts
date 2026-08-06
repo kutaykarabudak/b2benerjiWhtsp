@@ -31,8 +31,18 @@ let refreshing: Promise<boolean> | null = null
 
 async function tryRefresh(): Promise<boolean> {
   if (!refreshing) {
-    refreshing = axios
-      .post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+    const refresh = () =>
+      axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+
+    // Refresh tokens are rotated and single-use. The in-memory promise above
+    // deduplicates requests in this tab; Web Locks also serializes refreshes
+    // from other tabs/windows that share the same cookie.
+    const refreshAcrossTabs = () =>
+      navigator.locks?.request
+        ? navigator.locks.request('whm-token-refresh', refresh)
+        : refresh()
+
+    refreshing = refreshAcrossTabs()
       .then(() => true)
       .catch(() => false)
       .finally(() => {

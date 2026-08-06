@@ -141,11 +141,13 @@ func TestClient_ListCatalogProducts_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Contains(t, r.URL.Path, "/products")
+		assert.Contains(t, r.URL.Query().Get("fields"), "visibility")
+		assert.Contains(t, r.URL.Query().Get("fields"), "status")
 
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"data": []map[string]any{
-				{"id": "prod-1", "name": "Product 1", "price": "1000", "currency": "USD"},
+				{"id": "prod-1", "name": "Product 1", "price": "1000", "currency": "USD", "visibility": "published", "status": "PUBLISHED"},
 				{"id": "prod-2", "name": "Product 2", "price": "2000", "currency": "USD"},
 			},
 		})
@@ -160,6 +162,8 @@ func TestClient_ListCatalogProducts_Success(t *testing.T) {
 	require.Len(t, products, 2)
 	assert.Equal(t, "prod-1", products[0].ID)
 	assert.Equal(t, "Product 1", products[0].Name)
+	assert.Equal(t, "published", products[0].Visibility)
+	assert.Equal(t, "PUBLISHED", products[0].Status)
 }
 
 func TestClient_ListCatalogProducts_Empty(t *testing.T) {
@@ -185,16 +189,31 @@ func TestClient_CreateProduct_Success(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Contains(t, r.URL.Path, "/products")
-
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		assert.Equal(t, "Test Product", body["name"])
-		assert.Equal(t, "USD", body["currency"])
-
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": "prod-new"})
+		switch r.Method {
+		case http.MethodPost:
+			assert.Contains(t, r.URL.Path, "/items_batch")
+			require.NoError(t, r.ParseForm())
+			assert.Equal(t, "PRODUCT_ITEM", r.Form.Get("item_type"))
+			var requests []struct {
+				Method string            `json:"method"`
+				Data   map[string]string `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(r.Form.Get("requests")), &requests))
+			require.Len(t, requests, 1)
+			assert.Equal(t, "CREATE", requests[0].Method)
+			assert.Equal(t, "SKU-001", requests[0].Data["id"])
+			assert.Equal(t, "Test Product", requests[0].Data["title"])
+			assert.Equal(t, "19.99 USD", requests[0].Data["price"])
+			assert.Equal(t, "published", requests[0].Data["visibility"])
+			_ = json.NewEncoder(w).Encode(map[string]any{"handles": []string{"batch-handle"}})
+		case http.MethodGet:
+			assert.Contains(t, r.URL.Path, "/products")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]string{{"id": "prod-new", "retailer_id": "SKU-001"}},
+			})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
 	}))
 	defer server.Close()
 
@@ -223,13 +242,18 @@ func TestClient_UpdateProduct_Success(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-
-		var body map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		assert.Equal(t, "Updated Product", body["name"])
-
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		assert.Contains(t, r.URL.Path, "/items_batch")
+		require.NoError(t, r.ParseForm())
+		var requests []struct {
+			Method string            `json:"method"`
+			Data   map[string]string `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(r.Form.Get("requests")), &requests))
+		require.Len(t, requests, 1)
+		assert.Equal(t, "UPDATE", requests[0].Method)
+		assert.Equal(t, "SKU-001", requests[0].Data["id"])
+		assert.Equal(t, "Updated Product", requests[0].Data["title"])
+		_ = json.NewEncoder(w).Encode(map[string]any{"handles": []string{"batch-handle"}})
 	}))
 	defer server.Close()
 
@@ -237,11 +261,13 @@ func TestClient_UpdateProduct_Success(t *testing.T) {
 	account := testAccount(server.URL)
 
 	product := &whatsapp.ProductInput{
-		Name:  "Updated Product",
-		Price: 2999,
+		Name:       "Updated Product",
+		Price:      2999,
+		Currency:   "USD",
+		RetailerID: "SKU-001",
 	}
 
-	err := client.UpdateProduct(context.Background(), account, "prod-123", product)
+	err := client.UpdateProduct(context.Background(), account, "catalog-123", "SKU-001", product)
 	require.NoError(t, err)
 }
 
@@ -251,16 +277,25 @@ func TestClient_DeleteProduct_Success(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodDelete, r.Method)
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]bool{"success": true})
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Contains(t, r.URL.Path, "/items_batch")
+		require.NoError(t, r.ParseForm())
+		var requests []struct {
+			Method string            `json:"method"`
+			Data   map[string]string `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(r.Form.Get("requests")), &requests))
+		require.Len(t, requests, 1)
+		assert.Equal(t, "DELETE", requests[0].Method)
+		assert.Equal(t, "SKU-001", requests[0].Data["id"])
+		_ = json.NewEncoder(w).Encode(map[string]any{"handles": []string{"batch-handle"}})
 	}))
 	defer server.Close()
 
 	client := newTestClient(t, server)
 	account := testAccount(server.URL)
 
-	err := client.DeleteProduct(context.Background(), account, "prod-123")
+	err := client.DeleteProduct(context.Background(), account, "catalog-123", "SKU-001")
 	require.NoError(t, err)
 }
 
@@ -291,6 +326,6 @@ func TestClient_DeleteProduct_APIError(t *testing.T) {
 	client := newTestClient(t, server)
 	account := testAccount(server.URL)
 
-	err := client.DeleteProduct(context.Background(), account, "nonexistent")
+	err := client.DeleteProduct(context.Background(), account, "catalog-123", "nonexistent")
 	require.Error(t, err)
 }

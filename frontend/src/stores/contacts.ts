@@ -30,6 +30,16 @@ export interface Contact {
   assigned_user_id?: string
   whatsapp_account?: string
   marketing_opt_out?: boolean
+  email?: string
+  company_name?: string
+  tax_office?: string
+  tax_number?: string
+  address?: string
+  city?: string
+  district?: string
+  postal_code?: string
+  purchase_score?: number
+  has_purchased?: boolean
   created_at: string
   updated_at: string
 }

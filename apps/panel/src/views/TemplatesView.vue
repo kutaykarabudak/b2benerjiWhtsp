@@ -7,6 +7,7 @@ import {
   updateTemplate,
   submitTemplate,
   deleteTemplate,
+  setTemplateFirstMessage,
   type Template,
   type TemplateButton
 } from '@/services/templates'
@@ -186,6 +187,19 @@ async function removeTpl(t: Template) {
   }
 }
 
+async function toggleFirstMessage(t: Template) {
+  const enabled = !t.is_first_message
+  try {
+    await setTemplateFirstMessage(t.id, enabled)
+    t.is_first_message = enabled
+    msg.value = enabled
+      ? `✓ ${t.display_name || t.name} kapalı sohbetlerde ilk mesaj olarak gösterilecek.`
+      : `✓ ${t.display_name || t.name} ilk mesaj listesinden kaldırıldı.`
+  } catch (e: any) {
+    alert(e?.response?.data?.message || 'İlk mesaj ayarı kaydedilemedi.')
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -298,6 +312,11 @@ onMounted(load)
         <span v-for="(b, i) in t.buttons" :key="i" class="tpl-btn">{{ (b as any).text || (b as any).title || 'Buton' }}</span>
       </div>
       <div class="tpl-actions">
+        <button
+          v-if="t.status === 'APPROVED'"
+          :class="{ 'first-message-on': t.is_first_message }"
+          @click="toggleFirstMessage(t)"
+        >{{ t.is_first_message ? '✓ İlk mesaj olarak açık' : 'İlk mesaj olarak kullan' }}</button>
         <button v-if="t.status !== 'PENDING'" @click="startEditTpl(t)">Düzenle</button>
         <button v-if="t.status !== 'APPROVED' && t.status !== 'PENDING'" @click="submitTpl(t)">Meta’ya Gönder</button>
         <button class="danger-btn" @click="removeTpl(t)">Sil</button>
@@ -329,6 +348,7 @@ onMounted(load)
 .error { color: var(--danger); margin: 0; }
 .tpl-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
 .danger-btn { color: var(--danger); }
+.first-message-on { color: #087a55; border-color: #87d7b7; background: #edfbf5; }
 
 .tpl { margin-bottom: 10px; }
 .tpl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }

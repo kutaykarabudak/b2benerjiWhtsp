@@ -3,6 +3,8 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { TagBadge } from '@/components/ui/tag-badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -34,9 +36,12 @@ interface ContactFormData {
   profile_name: string
   whatsapp_account: string
   tags: string[]
+  email: string; company_name: string; tax_office: string; tax_number: string
+  address: string; city: string; district: string; postal_code: string
+  purchase_score: number; has_purchased: boolean
 }
 
-const defaultFormData: ContactFormData = { phone_number: '', profile_name: '', whatsapp_account: '', tags: [] }
+const defaultFormData: ContactFormData = { phone_number: '', profile_name: '', whatsapp_account: '', tags: [], email: '', company_name: '', tax_office: '', tax_number: '', address: '', city: '', district: '', postal_code: '', purchase_score: 0, has_purchased: false }
 
 const formData = ref<ContactFormData>({ ...defaultFormData })
 const isSubmitting = ref(false)
@@ -84,6 +89,11 @@ async function saveContact() {
       profile_name: formData.value.profile_name.trim() || undefined,
       whatsapp_account: formData.value.whatsapp_account || undefined,
       tags: formData.value.tags.length > 0 ? formData.value.tags : undefined
+      , email: formData.value.email, company_name: formData.value.company_name,
+      tax_office: formData.value.tax_office, tax_number: formData.value.tax_number,
+      address: formData.value.address, city: formData.value.city, district: formData.value.district,
+      postal_code: formData.value.postal_code, purchase_score: Number(formData.value.purchase_score),
+      has_purchased: formData.value.has_purchased
     })
     const contact = response.data?.data || response.data
     toast.success(t('common.createdSuccess', { resource: t('resources.Contact') }))
@@ -124,7 +134,7 @@ function closeDialog() {
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-md">
+    <DialogContent class="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>{{ $t('contacts.createTitle') }}</DialogTitle>
         <DialogDescription>{{ $t('contacts.createDesc') }}</DialogDescription>
@@ -134,6 +144,21 @@ function closeDialog() {
           <Label>{{ $t('contacts.phoneNumber') }} <span class="text-destructive">*</span></Label>
           <Input v-model="formData.phone_number" :placeholder="$t('contacts.phonePlaceholder')" />
           <p class="text-xs text-muted-foreground">{{ $t('contacts.phoneHint') }}</p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="space-y-2"><Label>E-posta</Label><Input v-model="formData.email" type="email" /></div>
+          <div class="space-y-2"><Label>Firma / Ünvan</Label><Input v-model="formData.company_name" /></div>
+          <div class="space-y-2"><Label>Vergi dairesi</Label><Input v-model="formData.tax_office" /></div>
+          <div class="space-y-2"><Label>Vergi / T.C. kimlik no</Label><Input v-model="formData.tax_number" /></div>
+          <div class="space-y-2"><Label>Şehir</Label><Input v-model="formData.city" /></div>
+          <div class="space-y-2"><Label>İlçe</Label><Input v-model="formData.district" /></div>
+          <div class="space-y-2"><Label>Posta kodu</Label><Input v-model="formData.postal_code" /></div>
+          <div class="space-y-2"><Label>Satın alma puanı (0-100)</Label><Input v-model.number="formData.purchase_score" type="number" min="0" max="100" /></div>
+        </div>
+        <div class="space-y-2"><Label>Açık adres</Label><Textarea v-model="formData.address" rows="3" /></div>
+        <div class="flex items-center justify-between rounded-lg border p-3">
+          <div><Label>Daha önce satın alım yaptı</Label><p class="text-xs text-muted-foreground">CRM hedef kitle filtrelerinde kullanılır.</p></div>
+          <Switch v-model:checked="formData.has_purchased" />
         </div>
         <div class="space-y-2">
           <Label>{{ $t('contacts.profileName') }}</Label>
@@ -153,7 +178,7 @@ function closeDialog() {
           </Select>
         </div>
         <div v-if="availableTags.length > 0" class="space-y-2">
-          <Label>{{ $t('contacts.tags') }}</Label>
+          <Label>Kategoriler</Label>
           <Popover v-model:open="tagSelectorOpen">
             <PopoverTrigger as-child>
               <Button variant="outline" role="combobox" class="w-full justify-between">

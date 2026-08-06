@@ -41,6 +41,16 @@ type ContactResponse struct {
 	LastInboundAt      *time.Time `json:"last_inbound_at,omitempty"`
 	ServiceWindowOpen  bool       `json:"service_window_open"`
 	MarketingOptOut    bool       `json:"marketing_opt_out"`
+	Email              string     `json:"email"`
+	CompanyName        string     `json:"company_name"`
+	TaxOffice          string     `json:"tax_office"`
+	TaxNumber          string     `json:"tax_number"`
+	Address            string     `json:"address"`
+	City               string     `json:"city"`
+	District           string     `json:"district"`
+	PostalCode         string     `json:"postal_code"`
+	PurchaseScore      int        `json:"purchase_score"`
+	HasPurchased       bool       `json:"has_purchased"`
 	CreatedAt          time.Time  `json:"created_at"`
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
@@ -92,6 +102,27 @@ func channelTypeOrDefault(ct string) string {
 	return ct
 }
 
+func serviceWindowOpen(contact *models.Contact) bool {
+	return contact.LastInboundAt != nil && time.Since(*contact.LastInboundAt) < 24*time.Hour
+}
+
+// requireAgentServiceWindow prevents agent free-form sends outside Meta's
+// 24-hour WhatsApp customer-service window. Approved templates use the
+// dedicated template endpoint and remain available.
+func requireAgentServiceWindow(r *fastglue.Request, contact *models.Contact) bool {
+	channelType := channelTypeOrDefault(contact.ChannelType)
+	if channelType != "whatsapp" || serviceWindowOpen(contact) {
+		return true
+	}
+	_ = r.SendErrorEnvelope(
+		fasthttp.StatusConflict,
+		"24 saatlik yanıt penceresi kapalı. Müşteri yeniden yazana kadar yalnızca onaylı ilk mesaj şablonlarından birini gönderebilirsiniz.",
+		nil,
+		"",
+	)
+	return false
+}
+
 // ListContacts returns all contacts for the organization
 // Users without contacts:read permission only see contacts assigned to them
 func (a *App) ListContacts(r *fastglue.Request) error {
@@ -104,9 +135,14 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	pg := parsePagination(r)
 	search := string(r.RequestCtx.QueryArgs().Peek("search"))
 	tagsParam := string(r.RequestCtx.QueryArgs().Peek("tags"))
-	channelParam := string(r.RequestCtx.QueryArgs().Peek("channel")) // comma-separated channel types
-	unreadParam := string(r.RequestCtx.QueryArgs().Peek("unread"))   // "true" -> only unread conversations
+	channelParam := string(r.RequestCtx.QueryArgs().Peek("channel"))   // comma-separated channel types
+	unreadParam := string(r.RequestCtx.QueryArgs().Peek("unread"))     // "true" -> only unread conversations
 	assignedParam := string(r.RequestCtx.QueryArgs().Peek("assigned")) // "me" -> only assigned to caller
+	purchasedParam := string(r.RequestCtx.QueryArgs().Peek("has_purchased"))
+	minScoreParam := string(r.RequestCtx.QueryArgs().Peek("min_purchase_score"))
+	cityParam := strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("city")))
+	districtParam := strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("district")))
+	hasMessagesParam := string(r.RequestCtx.QueryArgs().Peek("has_messages"))
 
 	var contacts []models.Contact
 	query := a.ScopeToOrg(a.DB, userID, orgID)
@@ -114,6 +150,12 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	// Users without contacts:read permission can only see contacts assigned to them
 	// or contacts with an active chat transfer to them
 	query = a.scopeAssignedContact(query, userID, orgID)
+
+	// The inbox requests only actual conversation threads. Contacts imported
+	// from CRM/CSV remain available on the Contacts page until a message exists.
+	if hasMessagesParam == "true" {
+		query = query.Where("last_message_at IS NOT NULL")
+	}
 
 	if search != "" {
 		// Limit search string length to prevent abuse
@@ -167,6 +209,18 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	// Only conversations assigned to the calling user.
 	if assignedParam == "me" {
 		query = query.Where("assigned_user_id = ?", userID)
+	}
+	if purchasedParam == "true" || purchasedParam == "false" {
+		query = query.Where("has_purchased = ?", purchasedParam == "true")
+	}
+	if minScore, err := strconv.Atoi(minScoreParam); err == nil && minScoreParam != "" {
+		query = query.Where("purchase_score >= ?", minScore)
+	}
+	if cityParam != "" {
+		query = query.Where("city ILIKE ?", "%"+cityParam+"%")
+	}
+	if districtParam != "" {
+		query = query.Where("district ILIKE ?", "%"+districtParam+"%")
 	}
 
 	// Order by last message time (most recent first)
@@ -227,8 +281,11 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 			LastInboundAt:      c.LastInboundAt,
 			ServiceWindowOpen:  serviceWindowOpen,
 			MarketingOptOut:    c.MarketingOptOut,
-			CreatedAt:          c.CreatedAt,
-			UpdatedAt:          c.UpdatedAt,
+			Email:              c.Email, CompanyName: c.CompanyName, TaxOffice: c.TaxOffice, TaxNumber: c.TaxNumber,
+			Address: c.Address, City: c.City, District: c.District, PostalCode: c.PostalCode,
+			PurchaseScore: c.PurchaseScore, HasPurchased: c.HasPurchased,
+			CreatedAt: c.CreatedAt,
+			UpdatedAt: c.UpdatedAt,
 		}
 	}
 
@@ -604,6 +661,9 @@ func (a *App) SendMessage(r *fastglue.Request) error {
 	if err := query.First(&contact).Error; err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "Contact not found", nil, "")
 	}
+	if !requireAgentServiceWindow(r, &contact) {
+		return nil
+	}
 
 	// QR (WhatsApp Web) conversations are delivered via the whatsmeow connector,
 	// not the Cloud API. Only plain text is supported on this channel.
@@ -864,6 +924,9 @@ func (a *App) SendMediaMessage(r *fastglue.Request) error {
 	if err := query.First(&contact).Error; err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "Contact not found", nil, "")
 	}
+	if !requireAgentServiceWindow(r, &contact) {
+		return nil
+	}
 
 	// Get WhatsApp account - prefer form-specified account over contact default
 	mediaAccountName := contact.WhatsAppAccount
@@ -902,6 +965,13 @@ func (a *App) SendMediaMessage(r *fastglue.Request) error {
 	if err != nil {
 		a.Log.Error("Failed to send message", "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to send message", nil, "")
+	}
+	if message.Status == models.MessageStatusFailed {
+		errorMessage := message.ErrorMessage
+		if errorMessage == "" {
+			errorMessage = "WhatsApp belgeyi kabul etmedi."
+		}
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, errorMessage, nil, "")
 	}
 
 	response := MessageResponse{
@@ -1368,6 +1438,16 @@ type CreateContactRequest struct {
 	WhatsAppAccount string         `json:"whatsapp_account"`
 	Tags            []string       `json:"tags"`
 	Metadata        map[string]any `json:"metadata"`
+	Email           string         `json:"email"`
+	CompanyName     string         `json:"company_name"`
+	TaxOffice       string         `json:"tax_office"`
+	TaxNumber       string         `json:"tax_number"`
+	Address         string         `json:"address"`
+	City            string         `json:"city"`
+	District        string         `json:"district"`
+	PostalCode      string         `json:"postal_code"`
+	PurchaseScore   int            `json:"purchase_score"`
+	HasPurchased    bool           `json:"has_purchased"`
 }
 
 // CreateContact creates a new contact or restores a soft-deleted one
@@ -1389,6 +1469,9 @@ func (a *App) CreateContact(r *fastglue.Request) error {
 
 	if req.PhoneNumber == "" {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "phone_number is required", nil, "")
+	}
+	if req.PurchaseScore < 0 || req.PurchaseScore > 100 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "purchase_score must be between 0 and 100", nil, "")
 	}
 
 	// Normalize phone number
@@ -1423,6 +1506,16 @@ func (a *App) CreateContact(r *fastglue.Request) error {
 			if req.Metadata != nil {
 				updates["metadata"] = models.JSONB(req.Metadata)
 			}
+			updates["email"] = strings.TrimSpace(req.Email)
+			updates["company_name"] = strings.TrimSpace(req.CompanyName)
+			updates["tax_office"] = strings.TrimSpace(req.TaxOffice)
+			updates["tax_number"] = strings.TrimSpace(req.TaxNumber)
+			updates["address"] = strings.TrimSpace(req.Address)
+			updates["city"] = strings.TrimSpace(req.City)
+			updates["district"] = strings.TrimSpace(req.District)
+			updates["postal_code"] = strings.TrimSpace(req.PostalCode)
+			updates["purchase_score"] = req.PurchaseScore
+			updates["has_purchased"] = req.HasPurchased
 			if len(updates) > 0 {
 				a.DB.Model(&existingContact).Updates(updates)
 			}
@@ -1440,6 +1533,9 @@ func (a *App) CreateContact(r *fastglue.Request) error {
 		PhoneNumber:     normalizedPhone,
 		ProfileName:     req.ProfileName,
 		WhatsAppAccount: req.WhatsAppAccount,
+		Email:           req.Email, CompanyName: req.CompanyName, TaxOffice: req.TaxOffice, TaxNumber: req.TaxNumber,
+		Address: req.Address, City: req.City, District: req.District, PostalCode: req.PostalCode,
+		PurchaseScore: req.PurchaseScore, HasPurchased: req.HasPurchased,
 	}
 
 	if req.Tags != nil {
@@ -1475,6 +1571,16 @@ type UpdateContactRequest struct {
 	Metadata           *map[string]any `json:"metadata"`
 	AssignedUserID     *uuid.UUID      `json:"assigned_user_id"`
 	ClearAssignedAgent *bool           `json:"clear_assigned_agent"`
+	Email              *string         `json:"email"`
+	CompanyName        *string         `json:"company_name"`
+	TaxOffice          *string         `json:"tax_office"`
+	TaxNumber          *string         `json:"tax_number"`
+	Address            *string         `json:"address"`
+	City               *string         `json:"city"`
+	District           *string         `json:"district"`
+	PostalCode         *string         `json:"postal_code"`
+	PurchaseScore      *int            `json:"purchase_score"`
+	HasPurchased       *bool           `json:"has_purchased"`
 }
 
 // UpdateContact updates an existing contact
@@ -1524,6 +1630,20 @@ func (a *App) UpdateContact(r *fastglue.Request) error {
 	}
 	if req.Metadata != nil {
 		updates["metadata"] = models.JSONB(*req.Metadata)
+	}
+	for key, value := range map[string]*string{"email": req.Email, "company_name": req.CompanyName, "tax_office": req.TaxOffice, "tax_number": req.TaxNumber, "address": req.Address, "city": req.City, "district": req.District, "postal_code": req.PostalCode} {
+		if value != nil {
+			updates[key] = strings.TrimSpace(*value)
+		}
+	}
+	if req.PurchaseScore != nil {
+		if *req.PurchaseScore < 0 || *req.PurchaseScore > 100 {
+			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "purchase_score must be between 0 and 100", nil, "")
+		}
+		updates["purchase_score"] = *req.PurchaseScore
+	}
+	if req.HasPurchased != nil {
+		updates["has_purchased"] = *req.HasPurchased
 	}
 	if req.ClearAssignedAgent != nil && *req.ClearAssignedAgent {
 		updates["assigned_user_id"] = nil
@@ -1634,7 +1754,10 @@ func (a *App) buildContactResponse(contact *models.Contact, orgID uuid.UUID) Con
 		LastInboundAt:      contact.LastInboundAt,
 		ServiceWindowOpen:  serviceWindowOpen,
 		MarketingOptOut:    contact.MarketingOptOut,
-		CreatedAt:          contact.CreatedAt,
-		UpdatedAt:          contact.UpdatedAt,
+		Email:              contact.Email, CompanyName: contact.CompanyName, TaxOffice: contact.TaxOffice, TaxNumber: contact.TaxNumber,
+		Address: contact.Address, City: contact.City, District: contact.District, PostalCode: contact.PostalCode,
+		PurchaseScore: contact.PurchaseScore, HasPurchased: contact.HasPurchased,
+		CreatedAt: contact.CreatedAt,
+		UpdatedAt: contact.UpdatedAt,
 	}
 }

@@ -102,6 +102,7 @@ func GetMigrationModels() []MigrationModel {
 		// Catalogs
 		{"Catalog", &models.Catalog{}},
 		{"CatalogProduct", &models.CatalogProduct{}},
+		{"CatalogImage", &models.CatalogImage{}},
 
 		// Dashboard
 		{"Widget", &models.Widget{}},

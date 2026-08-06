@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"context"
-	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,8 +12,8 @@ import (
 	"github.com/zerodha/fastglue"
 )
 
-// SendLocation sends a location pin to a contact (Cloud API channels only).
-func (a *App) SendLocation(r *fastglue.Request) error {
+// SendContactCard sends a saved-contact card over the WhatsApp Cloud API.
+func (a *App) SendContactCard(r *fastglue.Request) error {
 	orgID, userID, err := a.getOrgAndUserID(r)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
@@ -22,18 +22,18 @@ func (a *App) SendLocation(r *fastglue.Request) error {
 	if err != nil {
 		return nil
 	}
-
 	var req struct {
-		Latitude  float64 `json:"latitude"`
-		Longitude float64 `json:"longitude"`
-		Name      string  `json:"name"`
-		Address   string  `json:"address"`
+		Name    string `json:"name"`
+		Phone   string `json:"phone"`
+		Email   string `json:"email"`
+		Company string `json:"company"`
 	}
 	if err := a.decodeRequest(r, &req); err != nil {
 		return nil
 	}
-	if req.Latitude == 0 && req.Longitude == 0 {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "latitude and longitude are required", nil, "")
+	req.Name, req.Phone = strings.TrimSpace(req.Name), strings.TrimSpace(req.Phone)
+	if req.Name == "" || req.Phone == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Ad ve telefon zorunludur.", nil, "")
 	}
 
 	var contact models.Contact
@@ -45,22 +45,18 @@ func (a *App) SendLocation(r *fastglue.Request) error {
 		return nil
 	}
 	if contact.ChannelType == qrChannelType {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Konum sadece Cloud API kanalında gönderilebilir.", nil, "")
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Kişi kartı sadece Cloud API kanalında gönderilebilir.", nil, "")
 	}
-
 	account, err := a.resolveWhatsAppAccount(orgID, contact.WhatsAppAccount)
 	if err != nil {
 		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Failed to resolve WhatsApp account", nil, "")
 	}
-
 	rcpt := whatsapp.Recipient{Phone: contact.PhoneNumber, BSUID: contact.BSUID}
-	wamid, err := a.WhatsApp.SendLocationMessage(context.Background(), account.ToWAAccount(), rcpt, req.Latitude, req.Longitude, req.Name, req.Address)
+	wamid, err := a.WhatsApp.SendContactMessage(context.Background(), account.ToWAAccount(), rcpt, req.Name, req.Phone, strings.TrimSpace(req.Email), strings.TrimSpace(req.Company))
 	if err != nil {
-		a.Log.Error("Failed to send location", "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusBadGateway, "Konum gönderilemedi: "+err.Error(), nil, "")
+		return r.SendErrorEnvelope(fasthttp.StatusBadGateway, "Kişi kartı gönderilemedi: "+err.Error(), nil, "")
 	}
 
-	mapsURL := fmt.Sprintf("https://maps.google.com/?q=%f,%f", req.Latitude, req.Longitude)
 	msg := models.Message{
 		BaseModel:         models.BaseModel{ID: uuid.New()},
 		OrganizationID:    orgID,
@@ -69,19 +65,17 @@ func (a *App) SendLocation(r *fastglue.Request) error {
 		ContactID:         contact.ID,
 		WhatsAppMessageID: wamid,
 		Direction:         models.DirectionOutgoing,
-		MessageType:       models.MessageTypeLocation,
-		Content:           mapsURL,
+		MessageType:       models.MessageTypeContact,
+		Content:           "👤 " + req.Name + "\n" + req.Phone,
 		Status:            models.MessageStatusSent,
 		SentByUserID:      &userID,
-		Metadata:          models.JSONB{"latitude": req.Latitude, "longitude": req.Longitude},
+		Metadata:          models.JSONB{"name": req.Name, "phone": req.Phone, "email": req.Email, "company": req.Company},
 	}
 	_ = a.DB.Create(&msg).Error
-
 	now := time.Now()
 	contact.LastMessageAt = &now
-	contact.LastMessagePreview = "📍 Konum"
+	contact.LastMessagePreview = "👤 " + req.Name
 	contact.IsRead = true
 	_ = a.DB.Save(&contact).Error
-
-	return r.SendEnvelope(map[string]any{"message_id": msg.ID.String(), "maps_url": mapsURL})
+	return r.SendEnvelope(map[string]any{"message_id": msg.ID.String()})
 }

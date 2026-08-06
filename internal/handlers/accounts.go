@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shridarpatil/whatomate/internal/crypto"
@@ -24,6 +26,7 @@ type AccountRequest struct {
 	AppID                  string `json:"app_id"`
 	PhoneID                string `json:"phone_id" validate:"required"`
 	BusinessID             string `json:"business_id" validate:"required"`
+	CatalogBusinessID      string `json:"catalog_business_id"`
 	AccessToken            string `json:"access_token" validate:"required"`
 	AppSecret              string `json:"app_secret"` // Meta App Secret for webhook signature verification
 	WebhookVerifyToken     string `json:"webhook_verify_token"`
@@ -41,6 +44,7 @@ type AccountResponse struct {
 	AppID                  string     `json:"app_id"`
 	PhoneID                string     `json:"phone_id"`
 	BusinessID             string     `json:"business_id"`
+	CatalogBusinessID      string     `json:"catalog_business_id"`
 	WebhookVerifyToken     string     `json:"webhook_verify_token"`
 	APIVersion             string     `json:"api_version"`
 	IsDefaultIncoming      bool       `json:"is_default_incoming"`
@@ -119,6 +123,7 @@ func (a *App) CreateAccount(r *fastglue.Request) error {
 		AppID:                  req.AppID,
 		PhoneID:                req.PhoneID,
 		BusinessID:             req.BusinessID,
+		CatalogBusinessID:      req.CatalogBusinessID,
 		AccessToken:            req.AccessToken,
 		AppSecret:              req.AppSecret,
 		WebhookVerifyToken:     webhookVerifyToken,
@@ -239,6 +244,9 @@ func (a *App) UpdateAccount(r *fastglue.Request) error {
 	if req.BusinessID != "" {
 		account.BusinessID = req.BusinessID
 	}
+	if req.CatalogBusinessID != "" {
+		account.CatalogBusinessID = req.CatalogBusinessID
+	}
 	tokenChanged := false
 	secretChanged := false
 	if req.AccessToken != "" {
@@ -310,6 +318,46 @@ func (a *App) UpdateAccount(r *fastglue.Request) error {
 	return r.SendEnvelope(accountToResponse(*account))
 }
 
+// UpdateAccountCatalogSettings stores the owning Meta Business Portfolio ID
+// for one WhatsApp account without touching its messaging credentials.
+func (a *App) UpdateAccountCatalogSettings(r *fastglue.Request) error {
+	orgID, userID, err := a.requireAuth(r, models.ResourceAccounts, models.ActionWrite)
+	if err != nil {
+		return nil
+	}
+
+	id, err := parsePathUUID(r, "id", "account")
+	if err != nil {
+		return nil
+	}
+
+	account, err := a.resolveWhatsAppAccountByID(r, id, orgID)
+	if err != nil {
+		return nil
+	}
+
+	var req struct {
+		CatalogBusinessID string `json:"catalog_business_id"`
+	}
+	if err := a.decodeRequest(r, &req); err != nil {
+		return nil
+	}
+	if req.CatalogBusinessID == "" {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "catalog_business_id is required", nil, "")
+	}
+
+	oldAccount := *account
+	account.CatalogBusinessID = req.CatalogBusinessID
+	account.UpdatedByID = &userID
+	if err := a.DB.Save(account).Error; err != nil {
+		a.Log.Error("Failed to update account catalog settings", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to update catalog settings", nil, "")
+	}
+
+	a.logAudit(orgID, userID, "account", account.ID, models.AuditActionUpdated, &oldAccount, account)
+	return r.SendEnvelope(accountToResponse(*account))
+}
+
 // DeleteAccount deletes a WhatsApp account
 func (a *App) DeleteAccount(r *fastglue.Request) error {
 	orgID, userID, err := a.requireAuth(r, models.ResourceAccounts, models.ActionDelete)
@@ -363,11 +411,30 @@ func (a *App) TestAccountConnection(r *fastglue.Request) error {
 	// Use the comprehensive validation function
 	if err := a.validateAccountCredentials(account.PhoneID, account.BusinessID, account.AccessToken, account.APIVersion); err != nil {
 		a.Log.Error("Account test failed", "error", err, "account", account.Name)
+		message := fmt.Sprintf("Account credential validation failed: %s", err.Error())
+		if strings.Contains(err.Error(), "nonexisting field (phone_numbers)") {
+			message = "WhatsApp Business Account ID hatalı görünüyor. Business Portfolio ID veya App ID değil, WhatsApp Manager'daki WABA ID girilmelidir."
+		}
 		return r.SendEnvelope(map[string]any{
 			"success": false,
-			"error":   fmt.Sprintf("Account credential validation failed: %s", err.Error()),
+			"error":   message,
 		})
 	}
+
+	// Credential validity alone is not enough for inbound messaging. Every
+	// manually added WABA must also subscribe this Meta app to webhook events.
+	// The operation is idempotent, so doing it during a connection test also
+	// repairs accounts that were created before automatic subscription existed.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := a.WhatsApp.SubscribeApp(ctx, a.toWhatsAppAccount(account)); err != nil {
+		a.Log.Error("Account webhook subscription failed", "error", err, "account", account.Name, "business_id", account.BusinessID)
+		return r.SendEnvelope(map[string]any{
+			"success": false,
+			"error":   fmt.Sprintf("WhatsApp webhook subscription failed: %s", err.Error()),
+		})
+	}
+	a.Log.Info("Account webhook subscription verified", "account", account.Name, "business_id", account.BusinessID)
 
 	// Fetch additional details for display
 	phoneURL := fmt.Sprintf("%s/%s/%s?fields=display_phone_number,verified_name,code_verification_status,account_mode,quality_rating,messaging_limit_tier,whatsapp_business_manager_messaging_limit",
@@ -479,6 +546,7 @@ func accountToResponse(acc models.WhatsAppAccount) AccountResponse {
 		AppID:                  acc.AppID,
 		PhoneID:                acc.PhoneID,
 		BusinessID:             acc.BusinessID,
+		CatalogBusinessID:      acc.CatalogBusinessID,
 		WebhookVerifyToken:     acc.WebhookVerifyToken,
 		APIVersion:             acc.APIVersion,
 		IsDefaultIncoming:      acc.IsDefaultIncoming,
