@@ -16,6 +16,16 @@ export interface Conversation {
   service_window_open: boolean
   tags?: string[]
   metadata?: Record<string, any>
+  email?: string
+  company_name?: string
+  tax_office?: string
+  tax_number?: string
+  address?: string
+  city?: string
+  district?: string
+  postal_code?: string
+  purchase_score?: number
+  has_purchased?: boolean
 }
 
 // Update a contact's CRM info (name, tags, company/email/notes in metadata).
@@ -33,13 +43,32 @@ export interface Message {
   message_type: string
   content: { body?: string } | string | null
   media_url?: string
+  media_filename?: string
+  media_mime_type?: string
   interactive_data?: {
     type?: string
     body?: string
     buttons?: { id?: string; title?: string }[]
+    catalog_id?: string
+    text?: string
+    item_count?: number
+    total?: number
+    currency?: string
+    items?: OrderItem[]
   } | null
   status: string
   created_at: string
+}
+
+export interface OrderItem {
+  retailer_id: string
+  name?: string
+  image_url?: string
+  meta_product_id?: string
+  quantity: number
+  item_price: string | number
+  line_total: number
+  currency: string
 }
 
 export interface ConversationFilters {
@@ -52,13 +81,18 @@ export interface ConversationFilters {
 // The conversation list reuses the existing /contacts endpoint (a contact is a
 // conversation thread in this backend), now with channel/unread/assigned filters.
 export async function listConversations(filters: ConversationFilters = {}): Promise<Conversation[]> {
-  const params: Record<string, string> = { limit: '100' }
+  const params: Record<string, string> = { limit: '100', has_messages: 'true' }
   if (filters.channel?.length) params.channel = filters.channel.join(',')
   if (filters.unread) params.unread = 'true'
   if (filters.assigned) params.assigned = filters.assigned
   if (filters.search) params.search = filters.search
   const res = await api.get('/contacts', { params })
   return res.data?.contacts ?? []
+}
+
+export async function getConversation(contactId: string): Promise<Conversation> {
+  const res = await api.get(`/contacts/${contactId}`)
+  return res.data as Conversation
 }
 
 export async function getMessages(contactId: string): Promise<Message[]> {
@@ -70,6 +104,33 @@ export async function sendText(contactId: string, body: string): Promise<void> {
   await api.post(`/contacts/${contactId}/messages`, {
     type: 'text',
     content: { body }
+  })
+}
+
+export async function sendTemplateMessage(
+  contactId: string,
+  templateId: string,
+  templateParams: Record<string, string>,
+  headerFile?: File | null
+): Promise<void> {
+  if (headerFile) {
+    const form = new FormData()
+    form.append('contact_id', contactId)
+    form.append('template_id', templateId)
+    form.append('template_params', JSON.stringify(templateParams))
+    form.append('header_params', JSON.stringify(templateParams))
+    form.append('header_file', headerFile)
+    form.append('header_media_filename', headerFile.name)
+    await api.post('/messages/template', form, {
+      headers: { 'Content-Type': undefined as unknown as string }
+    })
+    return
+  }
+  await api.post('/messages/template', {
+    contact_id: contactId,
+    template_id: templateId,
+    template_params: templateParams,
+    header_params: templateParams
   })
 }
 
@@ -97,6 +158,13 @@ export async function sendLocation(
   name = ''
 ): Promise<void> {
   await api.post(`/contacts/${contactId}/location`, { latitude, longitude, name })
+}
+
+export async function sendContactCard(
+  contactId: string,
+  card: { name: string; phone: string; email?: string; company?: string }
+): Promise<void> {
+  await api.post(`/contacts/${contactId}/contact-card`, card)
 }
 
 // Sends an image (or other media) via the multipart media endpoint.

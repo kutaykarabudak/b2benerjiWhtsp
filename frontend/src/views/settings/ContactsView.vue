@@ -15,10 +15,15 @@ import { formatDate } from '@/lib/utils'
 import { useSearchPagination } from '@/composables/useSearchPagination'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useTagsStore } from '@/stores/tags'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const { t } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
+const tagsStore = useTagsStore()
 const canWriteContacts = authStore.hasPermission('contacts', 'write')
 const canImportContacts = authStore.hasPermission('contacts', 'import')
 const canExportContacts = authStore.hasPermission('contacts', 'export')
@@ -40,6 +45,9 @@ interface Contact {
   unread_count: number
   created_at: string
   updated_at: string
+  purchase_score: number
+  has_purchased: boolean
+  city: string
 }
 
 const contacts = ref<Contact[]>([])
@@ -50,6 +58,8 @@ const error = ref(false)
 const isCreateDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 const contactToDelete = ref<Contact | null>(null)
+const filters = ref({ category: 'all', purchased: 'all', minScore: '', city: '', district: '' })
+const hasActiveFilters = computed(() => filters.value.category !== 'all' || filters.value.purchased !== 'all' || !!filters.value.minScore || !!filters.value.city || !!filters.value.district)
 
 // Sorting state
 const sortKey = ref('last_message_at')
@@ -59,6 +69,7 @@ const columns = computed<Column<Contact>[]>(() => [
   { key: 'profile_name', label: t('contacts.name'), sortable: true },
   { key: 'phone_number', label: t('contacts.phoneNumber'), sortable: true },
   { key: 'tags', label: t('contacts.tags') },
+  { key: 'purchase_score', label: 'Satın alma' },
   { key: 'last_message_at', label: t('contacts.lastMessage'), sortable: true },
   { key: 'created_at', label: t('contacts.created'), sortable: true },
   { key: 'actions', label: t('common.actions'), align: 'right' },
@@ -96,6 +107,10 @@ async function fetchContacts() {
       search: searchQuery.value || undefined,
       page: currentPage.value,
       limit: pageSize
+      , tags: filters.value.category === 'all' ? undefined : filters.value.category,
+      has_purchased: filters.value.purchased === 'all' ? undefined : filters.value.purchased === 'yes',
+      min_purchase_score: filters.value.minScore ? Number(filters.value.minScore) : undefined,
+      city: filters.value.city || undefined, district: filters.value.district || undefined
     })
     const data = response.data as any
     const responseData = data.data || data
@@ -127,7 +142,23 @@ const { searchQuery, currentPage, totalItems, pageSize, handlePageChange } = use
 onMounted(() => {
   fetchContacts()
   fetchAccounts()
+  tagsStore.fetchTags({ limit: 100 }).catch(() => {})
 })
+
+function clearFilters() {
+  filters.value = { category: 'all', purchased: 'all', minScore: '', city: '', district: '' }
+  currentPage.value = 1
+  fetchContacts()
+}
+
+function openBulkMessaging() {
+  router.push({ path: '/campaigns', query: {
+    category: filters.value.category === 'all' ? undefined : filters.value.category,
+    has_purchased: filters.value.purchased === 'all' ? undefined : filters.value.purchased,
+    min_purchase_score: filters.value.minScore || undefined,
+    city: filters.value.city || undefined, district: filters.value.district || undefined,
+  } })
+}
 
 async function confirmDelete() {
   if (!contactToDelete.value) return
@@ -188,6 +219,17 @@ function getDisplayName(contact: Contact): string {
               </div>
             </CardHeader>
             <CardContent>
+              <div class="mb-5 rounded-xl border bg-muted/20 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3"><div><p class="text-sm font-medium">CRM hedef kitle filtreleri</p><p class="text-xs text-muted-foreground">Filtreleri birleştirerek toplu mesaj kitlenizi oluşturun.</p></div><Button size="sm" @click="openBulkMessaging"><MessageSquare class="mr-2 h-4 w-4" />Toplu mesaj</Button></div>
+                <div class="grid gap-3 md:grid-cols-5">
+                  <div><Label class="text-xs">Kategori</Label><Select v-model="filters.category"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tümü</SelectItem><SelectItem v-for="tag in tagsStore.tags" :key="tag.id" :value="tag.name">{{ tag.name }}</SelectItem></SelectContent></Select></div>
+                  <div><Label class="text-xs">Satın alım</Label><Select v-model="filters.purchased"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tümü</SelectItem><SelectItem value="yes">Alım yapanlar</SelectItem><SelectItem value="no">Alım yapmayanlar</SelectItem></SelectContent></Select></div>
+                  <div><Label class="text-xs">Minimum puan</Label><Input v-model="filters.minScore" type="number" min="0" max="100" placeholder="0" /></div>
+                  <div><Label class="text-xs">Şehir</Label><Input v-model="filters.city" /></div>
+                  <div><Label class="text-xs">İlçe</Label><Input v-model="filters.district" /></div>
+                </div>
+                <div class="mt-3 flex justify-end gap-2"><Button v-if="hasActiveFilters" variant="ghost" size="sm" @click="clearFilters">Temizle</Button><Button variant="outline" size="sm" @click="currentPage = 1; fetchContacts()">Filtreleri uygula</Button></div>
+              </div>
               <DataTable
                 :items="contacts"
                 :columns="columns"
@@ -219,6 +261,7 @@ function getDisplayName(contact: Contact): string {
                     <Badge v-if="(contact.tags || []).length > 3" variant="outline" class="text-xs">+{{ contact.tags.length - 3 }}</Badge>
                   </div>
                 </template>
+                <template #cell-purchase_score="{ item: contact }"><div class="flex items-center gap-2"><Badge :variant="contact.has_purchased ? 'default' : 'outline'">{{ contact.purchase_score || 0 }} puan</Badge><span v-if="contact.has_purchased" class="text-xs text-emerald-500">Alım yaptı</span></div></template>
                 <template #cell-last_message_at="{ item: contact }">
                   <span class="text-muted-foreground">{{ contact.last_message_at ? formatDate(contact.last_message_at) : $t('contacts.never') }}</span>
                 </template>

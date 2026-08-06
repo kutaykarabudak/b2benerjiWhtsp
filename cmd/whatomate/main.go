@@ -280,7 +280,10 @@ func runServer(args []string) {
 		ReadTimeout:        time.Duration(cfg.Server.ReadTimeout) * time.Second,
 		WriteTimeout:       time.Duration(cfg.Server.WriteTimeout) * time.Second,
 		MaxRequestBodySize: 15 * 1024 * 1024,
-		Name:               "Whatomate",
+		// Facebook SDK cookies (fbsr_*, fbm_*) plus session JWTs push request
+		// headers past fasthttp's 4 KiB default, which surfaces as HTTP 431.
+		ReadBufferSize: 64 * 1024,
+		Name:           "Whatomate",
 	}
 
 	// Start server in goroutine
@@ -667,6 +670,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.POST("/api/accounts/exchange-token", app.ExchangeToken) // Embedded signup
 	g.GET("/api/accounts/{id}", app.GetAccount)
 	g.PUT("/api/accounts/{id}", app.UpdateAccount)
+	g.PUT("/api/accounts/{id}/catalog-settings", app.UpdateAccountCatalogSettings)
 	g.DELETE("/api/accounts/{id}", app.DeleteAccount)
 	g.POST("/api/accounts/{id}/register", app.RegisterPhoneNumber) // Embedded signup manual/2fa registration
 	g.POST("/api/accounts/{id}/test", app.TestAccountConnection)
@@ -702,6 +706,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.POST("/api/contacts/{id}/messages", app.SendMessage)
 	g.POST("/api/contacts/{id}/mark-read", app.MarkContactRead)
 	g.POST("/api/contacts/{id}/location", app.SendLocation)
+	g.POST("/api/contacts/{id}/contact-card", app.SendContactCard)
 	g.POST("/api/contacts/{id}/messages/{message_id}/reaction", app.SendReaction)
 	g.POST("/api/messages", app.SendMessage) // Legacy route
 	g.POST("/api/messages/template", app.SendTemplateMessage)
@@ -725,6 +730,7 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.DELETE("/api/templates/{id}", app.DeleteTemplate)
 	g.POST("/api/templates/sync", app.SyncTemplates)
 	g.POST("/api/templates/{id}/publish", app.SubmitTemplate)
+	g.PUT("/api/templates/{id}/first-message", app.SetTemplateFirstMessage)
 	g.POST("/api/templates/upload-media", app.UploadTemplateMedia)
 
 	// WhatsApp Flows
@@ -911,14 +917,19 @@ func setupRoutes(g *fastglue.Fastglue, app *handlers.App, lo logf.Logger, basePa
 	g.POST("/api/catalogs", app.CreateCatalog)
 	g.GET("/api/catalogs/{id}", app.GetCatalog)
 	g.DELETE("/api/catalogs/{id}", app.DeleteCatalog)
+	g.POST("/api/catalogs/{id}/activate", app.ActivateCatalog)
 	g.POST("/api/catalogs/sync", app.SyncCatalogs)
 
 	// Catalog Products
 	g.GET("/api/catalogs/{id}/products", app.ListCatalogProducts)
 	g.POST("/api/catalogs/{id}/products", app.CreateCatalogProduct)
+	g.POST("/api/catalog-images", app.UploadCatalogImage)
 	g.GET("/api/products/{id}", app.GetCatalogProduct)
 	g.PUT("/api/products/{id}", app.UpdateCatalogProduct)
 	g.DELETE("/api/products/{id}", app.DeleteCatalogProduct)
+
+	// Public, opaque product-image URL used by Meta's catalog crawler.
+	g.GET("/catalog-images/{token}", app.ServeCatalogImage)
 
 	// Serve embedded frontend (SPA)
 	if frontend.IsEmbedded() {

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -61,6 +62,13 @@ func newMockCatalogServer() *mockCatalogServer {
 
 		switch r.Method {
 		case http.MethodPost:
+			if strings.HasSuffix(r.URL.Path, "/items_batch") {
+				w.WriteHeader(http.StatusOK)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"handles": []string{"batch-handle"},
+				})
+				return
+			}
 			// Handle catalog or product creation
 			w.WriteHeader(http.StatusOK)
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -147,6 +155,7 @@ func createCatalogTestAccount(t *testing.T, app *handlers.App, orgID uuid.UUID) 
 		Name:               "test-account-" + uuid.New().String()[:8],
 		PhoneID:            "phone-" + uuid.New().String()[:8],
 		BusinessID:         "business-" + uuid.New().String()[:8],
+		CatalogBusinessID:  "portfolio-" + uuid.New().String()[:8],
 		AccessToken:        "test-token",
 		WebhookVerifyToken: "webhook-token",
 		APIVersion:         "v18.0",

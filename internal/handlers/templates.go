@@ -51,10 +51,49 @@ type TemplateResponse struct {
 	AddSecurityRecommendation bool      `json:"add_security_recommendation"`
 	CodeExpirationMinutes     int       `json:"code_expiration_minutes"`
 	QualityRating             string    `json:"quality_rating"`
+	IsFirstMessage            bool      `json:"is_first_message"`
 	CreatedByName             string    `json:"created_by_name,omitempty"`
 	UpdatedByName             string    `json:"updated_by_name,omitempty"`
 	CreatedAt                 string    `json:"created_at"`
 	UpdatedAt                 string    `json:"updated_at"`
+}
+
+// SetTemplateFirstMessage controls whether an approved template is offered in
+// the inbox when the WhatsApp customer-service window is closed.
+func (a *App) SetTemplateFirstMessage(r *fastglue.Request) error {
+	orgID, userID, err := a.getOrgAndUserID(r)
+	if err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusUnauthorized, "Unauthorized", nil, "")
+	}
+	id, err := parsePathUUID(r, "id", "template")
+	if err != nil {
+		return nil
+	}
+	template, err := findByIDAndOrg[models.Template](a.DB, r, id, orgID, "Template")
+	if err != nil {
+		return nil
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := a.decodeRequest(r, &req); err != nil {
+		return nil
+	}
+	if req.Enabled && !strings.EqualFold(template.Status, "APPROVED") {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Yalnızca Meta tarafından onaylanmış şablonlar ilk mesaj olarak kullanılabilir.", nil, "")
+	}
+	oldTemplate := *template
+	template.IsFirstMessage = req.Enabled
+	template.UpdatedByID = &userID
+	if err := a.DB.Model(template).Updates(map[string]any{
+		"is_first_message": template.IsFirstMessage,
+		"updated_by_id":    template.UpdatedByID,
+	}).Error; err != nil {
+		a.Log.Error("Failed to update first-message template flag", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "İlk mesaj ayarı kaydedilemedi.", nil, "")
+	}
+	a.logAudit(orgID, userID, "template", template.ID, models.AuditActionUpdated, &oldTemplate, template)
+	return r.SendEnvelope(templateToResponse(*template))
 }
 
 // ListTemplates returns all templates for the organization
@@ -598,6 +637,7 @@ func templateToResponse(t models.Template) TemplateResponse {
 		Category:                  t.Category,
 		Status:                    t.Status,
 		QualityRating:             t.QualityRating,
+		IsFirstMessage:            t.IsFirstMessage,
 		HeaderType:                t.HeaderType,
 		HeaderContent:             t.HeaderContent,
 		BodyContent:               t.BodyContent,

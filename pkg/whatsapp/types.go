@@ -284,25 +284,31 @@ type CatalogListResponse struct {
 
 // ProductInput represents input for creating/updating a product
 type ProductInput struct {
-	Name        string `json:"name"`
-	Price       int64  `json:"price"` // Price in cents
-	Currency    string `json:"currency"`
-	URL         string `json:"url"`
-	ImageURL    string `json:"image_url"`
-	RetailerID  string `json:"retailer_id"` // SKU
-	Description string `json:"description"`
+	Name         string `json:"name"`
+	Price        int64  `json:"price"` // Price in cents
+	Currency     string `json:"currency"`
+	URL          string `json:"url"`
+	ImageURL     string `json:"image_url"`
+	RetailerID   string `json:"retailer_id"` // SKU
+	Description  string `json:"description"`
+	Availability string `json:"availability,omitempty"`
+	Condition    string `json:"condition,omitempty"`
 }
 
 // ProductInfo represents a product from Meta API
 type ProductInfo struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Price       string `json:"price"`
-	Currency    string `json:"currency"`
-	URL         string `json:"url"`
-	ImageURL    string `json:"image_url"`
-	RetailerID  string `json:"retailer_id"`
-	Description string `json:"description"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Price        string `json:"price"`
+	Currency     string `json:"currency"`
+	URL          string `json:"url"`
+	ImageURL     string `json:"image_url"`
+	RetailerID   string `json:"retailer_id"`
+	Description  string `json:"description"`
+	Availability string `json:"availability"`
+	Condition    string `json:"condition"`
+	Visibility   string `json:"visibility"`
+	Status       string `json:"status"`
 }
 
 // ProductListResponse represents response from listing products

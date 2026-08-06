@@ -14,6 +14,7 @@ export interface Template {
   body_content: string
   footer_content?: string
   buttons?: any[]
+  is_first_message: boolean
 }
 
 export async function listTemplates(): Promise<Template[]> {
@@ -61,4 +62,8 @@ export async function submitTemplate(id: string): Promise<void> {
 
 export async function deleteTemplate(id: string): Promise<void> {
   await api.delete(`/templates/${id}`)
+}
+
+export async function setTemplateFirstMessage(id: string, enabled: boolean): Promise<void> {
+  await api.put(`/templates/${id}/first-message`, { enabled })
 }

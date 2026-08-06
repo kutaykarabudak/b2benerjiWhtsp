@@ -606,6 +606,61 @@ func TestSaveIncomingMessage_WithMedia(t *testing.T) {
 	assert.Equal(t, "[image]", dbContact.LastMessagePreview)
 }
 
+func TestIncomingOrderStoresAndEnrichesProductDetails(t *testing.T) {
+	app := newProcessorTestApp(t)
+	org, account := createProcessorTestOrg(t, app)
+	contact := testutil.CreateTestContact(t, app.DB, org.ID)
+	catalog := models.Catalog{
+		BaseModel:       models.BaseModel{ID: uuid.New()},
+		OrganizationID:  org.ID,
+		WhatsAppAccount: account.Name,
+		MetaCatalogID:   "catalog-123",
+		Name:            "Test catalog",
+		IsActive:        true,
+	}
+	require.NoError(t, app.DB.Create(&catalog).Error)
+	require.NoError(t, app.DB.Create(&models.CatalogProduct{
+		BaseModel:      models.BaseModel{ID: uuid.New()},
+		OrganizationID: org.ID,
+		CatalogID:      catalog.ID,
+		MetaProductID:  "meta-product-1",
+		Name:           "Deneme Ürün",
+		Price:          50000,
+		Currency:       "TRY",
+		ImageURL:       "https://example.com/product.jpg",
+		RetailerID:     "SKU-001",
+		IsActive:       true,
+	}).Error)
+
+	var msg IncomingTextMessage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"from":"905300000000","id":"wamid.order-test","timestamp":"1","type":"order",
+		"order":{"catalog_id":"catalog-123","text":"Lütfen hazırlayın","product_items":[
+			{"product_retailer_id":"SKU-001","quantity":2,"item_price":"500.00","currency":"TRY"}
+		]}
+	}`), &msg))
+
+	extracted := app.extractMessageContent(t.Context(), msg, account)
+	require.Equal(t, "order", extracted.Type)
+	require.Equal(t, "Sipariş", extracted.Text)
+	require.NotNil(t, extracted.InteractiveData)
+	items, ok := extracted.InteractiveData["items"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Deneme Ürün", items[0]["name"])
+	assert.Equal(t, "SKU-001", items[0]["retailer_id"])
+	assert.Equal(t, float64(1000), items[0]["line_total"])
+
+	app.saveIncomingMessage(account, contact, msg.ID, extracted.Type, extracted.Text, nil, "", extracted.InteractiveData)
+	var saved models.Message
+	require.NoError(t, app.DB.Where("whats_app_message_id = ?", msg.ID).First(&saved).Error)
+	assert.Equal(t, models.MessageType("order"), saved.MessageType)
+	assert.Equal(t, "order", saved.InteractiveData["type"])
+	var updatedContact models.Contact
+	require.NoError(t, app.DB.First(&updatedContact, contact.ID).Error)
+	assert.Equal(t, "[Sipariş · 1 ürün]", updatedContact.LastMessagePreview)
+}
+
 func TestSaveIncomingMessage_WithReplyContext(t *testing.T) {
 	app := newProcessorTestApp(t)
 	org, account := createProcessorTestOrg(t, app)

@@ -20,6 +20,8 @@ import { Badge } from '@/components/ui/badge'
 import { TagBadge } from '@/components/ui/tag-badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -93,6 +95,9 @@ const form = ref({
   whatsapp_account: '',
   tags: [] as string[],
   assigned_user_id: '' as string,
+  email: '', company_name: '', tax_office: '', tax_number: '',
+  address: '', city: '', district: '', postal_code: '',
+  purchase_score: 0, has_purchased: false,
 })
 
 const breadcrumbs = computed(() => [
@@ -131,6 +136,11 @@ function syncForm() {
     whatsapp_account: contact.value.whatsapp_account || '',
     tags: contact.value.tags ? [...contact.value.tags] : [],
     assigned_user_id: contact.value.assigned_user_id || '',
+    email: contact.value.email || '', company_name: contact.value.company_name || '',
+    tax_office: contact.value.tax_office || '', tax_number: contact.value.tax_number || '',
+    address: contact.value.address || '', city: contact.value.city || '', district: contact.value.district || '',
+    postal_code: contact.value.postal_code || '', purchase_score: contact.value.purchase_score || 0,
+    has_purchased: contact.value.has_purchased || false,
   }
 }
 
@@ -148,6 +158,11 @@ async function save() {
       profile_name: form.value.profile_name,
       whatsapp_account: form.value.whatsapp_account,
       tags: form.value.tags,
+      email: form.value.email, company_name: form.value.company_name,
+      tax_office: form.value.tax_office, tax_number: form.value.tax_number,
+      address: form.value.address, city: form.value.city, district: form.value.district,
+      postal_code: form.value.postal_code, purchase_score: Number(form.value.purchase_score),
+      has_purchased: form.value.has_purchased,
     }
     if (form.value.assigned_user_id) {
       payload.assigned_user_id = form.value.assigned_user_id
@@ -288,6 +303,22 @@ onMounted(async () => {
             <Input v-model="form.phone_number" disabled />
           </div>
 
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="space-y-1.5"><Label class="text-xs">E-posta</Label><Input v-model="form.email" type="email" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Firma / Ünvan</Label><Input v-model="form.company_name" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Vergi dairesi</Label><Input v-model="form.tax_office" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Vergi / T.C. kimlik no</Label><Input v-model="form.tax_number" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Şehir</Label><Input v-model="form.city" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">İlçe</Label><Input v-model="form.district" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Posta kodu</Label><Input v-model="form.postal_code" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Satın alma puanı (0-100)</Label><Input v-model.number="form.purchase_score" type="number" min="0" max="100" :disabled="!canWrite" /></div>
+          </div>
+          <div class="space-y-1.5"><Label class="text-xs">Açık adres</Label><Textarea v-model="form.address" :disabled="!canWrite" rows="3" /></div>
+          <div class="flex items-center justify-between rounded-lg border p-3">
+            <div><Label>Daha önce satın alım yaptı</Label><p class="text-xs text-muted-foreground">Toplu mesaj filtrelerinde kullanılabilir.</p></div>
+            <Switch v-model:checked="form.has_purchased" :disabled="!canWrite" />
+          </div>
+
           <div class="space-y-1.5">
             <Label class="text-xs">{{ $t('contacts.whatsappAccount', 'WhatsApp Account') }}</Label>
             <Select v-model="form.whatsapp_account" :disabled="!canWrite">
@@ -307,7 +338,7 @@ onMounted(async () => {
           </div>
 
           <div class="space-y-1.5">
-            <Label class="text-xs">{{ $t('contacts.tags') }}</Label>
+            <Label class="text-xs">Kategoriler</Label>
             <Popover v-model:open="tagSelectorOpen">
               <PopoverTrigger as-child>
                 <Button variant="outline" role="combobox" class="w-full justify-between" :disabled="!canWrite">

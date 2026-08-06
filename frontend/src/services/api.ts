@@ -189,7 +189,7 @@ export const accountsService = {
 }
 
 export const contactsService = {
-  list: (params?: { search?: string; page?: number; limit?: number; tags?: string }) =>
+  list: (params?: { search?: string; page?: number; limit?: number; tags?: string; has_purchased?: boolean; min_purchase_score?: number; city?: string; district?: string }) =>
     api.get('/contacts', { params }),
   get: (id: string) => api.get(`/contacts/${id}`),
   create: (data: any) => api.post('/contacts', data),
@@ -225,6 +225,7 @@ export interface ImportConfig {
 export interface ImportResult {
   created: number
   updated: number
+  deleted: number
   skipped: number
   errors: number
   messages: string[]
@@ -246,7 +247,7 @@ export const dataService = {
   },
 
   // Import data from CSV file
-  importData: (table: string, file: File, updateOnDuplicate?: boolean, columnMapping?: Record<string, string>) => {
+  importData: (table: string, file: File, updateOnDuplicate?: boolean, columnMapping?: Record<string, string>, replaceAll?: boolean) => {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('table', table)
@@ -255,6 +256,9 @@ export const dataService = {
     }
     if (columnMapping) {
       formData.append('column_mapping', JSON.stringify(columnMapping))
+    }
+    if (replaceAll) {
+      formData.append('replace_all', 'true')
     }
     return api.post<ImportResult>('/import', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }

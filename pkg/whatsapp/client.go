@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/zerodha/logf"
@@ -101,6 +103,34 @@ func (c *Client) doRequest(ctx context.Context, method, url string, body any, ac
 		return nil, ParseMetaAPIError(resp.StatusCode, respBody)
 	}
 
+	return respBody, nil
+}
+
+// doFormRequest performs a form-encoded request. Some Graph API endpoints,
+// including the catalog items batch endpoint, require nested JSON to be sent
+// as a string form field instead of as an application/json request body.
+func (c *Client) doFormRequest(ctx context.Context, method, rawURL string, body url.Values, accessToken string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, strings.NewReader(body.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, ParseMetaAPIError(resp.StatusCode, respBody)
+	}
 	return respBody, nil
 }
 

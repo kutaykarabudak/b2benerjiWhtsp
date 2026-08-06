@@ -795,6 +795,20 @@ func (a *App) SendTemplateMessage(r *fastglue.Request) error {
 		contact = &c
 	}
 
+	// Outside Meta's 24-hour customer-service window, the inbox/API may only
+	// initiate the conversation with templates explicitly approved for that
+	// purpose by an administrator.
+	if channelTypeOrDefault(contact.ChannelType) == "whatsapp" &&
+		!serviceWindowOpen(contact) &&
+		!template.IsFirstMessage {
+		return r.SendErrorEnvelope(
+			fasthttp.StatusConflict,
+			"24 saatlik yanıt penceresi kapalı. Bu şablon ilk mesaj olarak işaretlenmemiş.",
+			nil,
+			"",
+		)
+	}
+
 	// Determine which WhatsApp account to use (explicit > template > contact > default)
 	accountName := req.AccountName
 	if accountName == "" {

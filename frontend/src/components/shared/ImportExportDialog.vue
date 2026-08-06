@@ -40,7 +40,10 @@ const emit = defineEmits<{
   'imported': [result: ImportResult]
 }>()
 
-const activeTab = ref(props.canExport ? 'export' : 'import')
+const getDefaultTab = () => props.table === 'contacts' && props.canImport
+  ? 'import'
+  : props.canExport ? 'export' : 'import'
+const activeTab = ref(getDefaultTab())
 
 // Export state
 const exportColumns = ref<ExportColumn[]>([])
@@ -58,11 +61,14 @@ const updateOnDuplicate = ref(false)
 const isImporting = ref(false)
 const isLoadingImportConfig = ref(false)
 const importResult = ref<ImportResult | null>(null)
+const isDownloadingTemplate = ref(false)
 
 watch(() => props.open, async (isOpen) => {
   if (isOpen) {
+    activeTab.value = getDefaultTab()
     importResult.value = null
     importFile.value = null
+    updateOnDuplicate.value = props.table === 'contacts'
     if (props.canExport) {
       await loadExportConfig()
     }
@@ -158,11 +164,21 @@ async function handleImport() {
     toast.error(t('importExport.selectFile'))
     return
   }
+  if (props.table === 'contacts' && !window.confirm(t('importExport.replaceContactsConfirm'))) {
+    return
+  }
 
   isImporting.value = true
   importResult.value = null
   try {
-    const response = await dataService.importData(props.table, importFile.value, updateOnDuplicate.value)
+    const replaceAll = props.table === 'contacts'
+    const response = await dataService.importData(
+      props.table,
+      importFile.value,
+      replaceAll ? false : updateOnDuplicate.value,
+      undefined,
+      replaceAll,
+    )
     const result = (response.data as any)?.data || response.data
     importResult.value = result as ImportResult
 
@@ -187,23 +203,83 @@ function closeDialog() {
 
 const allColumns = computed(() => [...importRequiredColumns.value, ...importOptionalColumns.value])
 
-function downloadSampleCsv() {
-  const headers = allColumns.value.map(c => translateColumnLabel(c)).join(',')
-  const blob = new Blob([headers + '\n'], { type: 'text/csv' })
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${props.table}_sample.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  window.URL.revokeObjectURL(url)
+const contactTemplateOrder = [
+  'id',
+  'customer_id',
+  'first_name',
+  'last_name',
+  'profile_name',
+  'company_name',
+  'email',
+  'phone_country_code',
+  'phone_number',
+  'tax_office',
+  'tax_number',
+  'postal_code',
+  'city',
+  'district',
+  'address',
+  'purchase_score',
+  'has_purchased',
+  'tags',
+  'note',
+]
+
+const templateColumns = computed(() => {
+  if (props.table !== 'contacts') return allColumns.value
+
+  const columnsByKey = new Map(allColumns.value.map(column => [column.key, column]))
+  return contactTemplateOrder
+    .map(key => columnsByKey.get(key))
+    .filter((column): column is ExportColumn => !!column)
+})
+
+function encodeUtf16Le(value: string): ArrayBuffer {
+  const buffer = new ArrayBuffer(2 + value.length * 2)
+  const bytes = new Uint8Array(buffer)
+  bytes[0] = 0xff
+  bytes[1] = 0xfe
+  for (let i = 0; i < value.length; i++) {
+    const codeUnit = value.charCodeAt(i)
+    bytes[2 + i * 2] = codeUnit & 0xff
+    bytes[3 + i * 2] = codeUnit >> 8
+  }
+  return buffer
+}
+
+async function downloadSampleCsv() {
+  isDownloadingTemplate.value = true
+  try {
+    let blob: Blob
+    if (props.table === 'contacts') {
+      const response = await dataService.exportData(props.table, contactTemplateOrder)
+      blob = response.data as Blob
+    } else {
+      const headers = templateColumns.value.map(c => translateColumnLabel(c)).join(';')
+      const content = encodeUtf16Le('sep=;\r\n' + headers + '\r\n')
+      blob = new Blob([content], { type: 'text/csv;charset=utf-16le' })
+    }
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = props.table === 'contacts'
+      ? `kisiler_tam_liste_${new Date().toISOString().slice(0, 10)}.xlsx`
+      : `${props.table}_sample.csv`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    toast.error(getErrorMessage(error, t('importExport.exportFailed')))
+  } finally {
+    isDownloadingTemplate.value = false
+  }
 }
 </script>
 
 <template>
   <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent class="sm:max-w-lg">
+    <DialogContent class="sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>{{ $t('importExport.title', { resource: tableLabel }) }}</DialogTitle>
         <DialogDescription>{{ $t('importExport.description', { resource: tableLabel.toLowerCase() }) }}</DialogDescription>
@@ -274,10 +350,21 @@ function downloadSampleCsv() {
                   {{ importOptionalColumns.map(c => translateColumnLabel(c)).join(', ') }}
                 </span>
               </div>
-              <Button variant="link" size="sm" class="h-auto p-0 text-xs" @click="downloadSampleCsv">
-                <FileSpreadsheet class="h-3 w-3 mr-1" />
-                {{ $t('importExport.downloadSample') }}
+              <Button variant="link" size="sm" class="h-auto p-0 text-xs" :disabled="isDownloadingTemplate" @click="downloadSampleCsv">
+                <Loader2 v-if="isDownloadingTemplate" class="h-3 w-3 mr-1 animate-spin" />
+                <FileSpreadsheet v-else class="h-3 w-3 mr-1" />
+                {{ table === 'contacts' ? $t('importExport.downloadContactTemplate') : $t('importExport.downloadSample') }}
               </Button>
+            </div>
+
+            <div v-if="table === 'contacts'" class="rounded-md border bg-muted/30 p-3 text-sm">
+              <p class="font-medium">{{ $t('importExport.contactImportRulesTitle') }}</p>
+              <ul class="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+                <li>{{ $t('importExport.contactMatchRule') }}</li>
+                <li>{{ $t('importExport.contactUpdateRule') }}</li>
+                <li>{{ $t('importExport.contactBlankRule') }}</li>
+                <li>{{ $t('importExport.contactPhoneRule') }}</li>
+              </ul>
             </div>
 
             <!-- File Upload -->
@@ -285,20 +372,20 @@ function downloadSampleCsv() {
               <Label>{{ $t('importExport.selectCsvFile') }}</Label>
               <Input
                 type="file"
-                accept=".csv"
+                :accept="table === 'contacts' ? '.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv' : '.csv,text/csv'"
                 @change="handleFileSelect"
               />
             </div>
 
             <!-- Update on duplicate -->
-            <div v-if="uniqueColumn" class="flex items-center space-x-2">
+            <div v-if="uniqueColumn && table !== 'contacts'" class="flex items-center space-x-2">
               <Checkbox
                 id="update-dup"
                 :checked="updateOnDuplicate"
                 @update:checked="updateOnDuplicate = !!$event"
               />
               <Label for="update-dup" class="cursor-pointer font-normal text-sm">
-                {{ $t('importExport.updateExisting') }}
+                {{ table === 'contacts' ? $t('importExport.updateExistingContact') : $t('importExport.updateExisting') }}
               </Label>
             </div>
 
@@ -312,6 +399,7 @@ function downloadSampleCsv() {
               <div class="text-sm text-muted-foreground space-y-1">
                 <p>{{ $t('importExport.created') }}: {{ importResult.created }}</p>
                 <p>{{ $t('importExport.updated') }}: {{ importResult.updated }}</p>
+                <p v-if="table === 'contacts'">{{ $t('importExport.deleted') }}: {{ importResult.deleted || 0 }}</p>
                 <p v-if="importResult.skipped > 0">{{ $t('importExport.skipped') }}: {{ importResult.skipped }}</p>
                 <p v-if="importResult.errors > 0" class="text-amber-500">{{ $t('importExport.errors') }}: {{ importResult.errors }}</p>
               </div>

@@ -20,6 +20,7 @@ require (
 	github.com/redis/go-redis/v9 v9.4.0
 	github.com/stretchr/testify v1.11.1
 	github.com/valyala/fasthttp v1.58.0
+	github.com/xuri/excelize/v2 v2.10.1
 	github.com/zerodha/fastglue v1.8.0
 	github.com/zerodha/logf v0.5.5
 	go.mau.fi/whatsmeow v0.0.0-20260630180629-b572e5bcb92b
@@ -84,12 +85,17 @@ require (
 	github.com/pion/transport/v4 v4.0.1 // indirect
 	github.com/pion/turn/v4 v4.1.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/richardlehane/mscfb v1.0.6 // indirect
+	github.com/richardlehane/msoleps v1.0.6 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
+	github.com/tiendc/go-deepcopy v1.7.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.27 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
+	github.com/xuri/efp v0.0.1 // indirect
+	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
 	go.mau.fi/util v0.9.10 // indirect
 	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect

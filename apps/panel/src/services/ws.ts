@@ -7,7 +7,12 @@ export interface WSEvent {
 
 // Realtime channel to the backend. Auth is a short-lived token (fetched over the
 // authenticated cookie session) sent as the first WS message. Auto-reconnects.
-export function createRealtime(onEvent: (ev: WSEvent) => void) {
+export type RealtimeStatus = 'connecting' | 'connected' | 'disconnected'
+
+export function createRealtime(
+  onEvent: (ev: WSEvent) => void,
+  onStatus: (status: RealtimeStatus) => void = () => {}
+) {
   let ws: WebSocket | null = null
   let closed = false
   let reconnectTimer: number | undefined
@@ -15,6 +20,7 @@ export function createRealtime(onEvent: (ev: WSEvent) => void) {
 
   async function connect() {
     if (closed) return
+    onStatus('connecting')
     let token: string | null = null
     let wsUrl = ''
     try {
@@ -45,6 +51,7 @@ export function createRealtime(onEvent: (ev: WSEvent) => void) {
       return
     }
     ws.onopen = () => {
+      onStatus('connected')
       ws?.send(JSON.stringify({ type: 'auth', payload: { token } }))
       pingTimer = window.setInterval(() => {
         if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'ping' }))
@@ -58,6 +65,7 @@ export function createRealtime(onEvent: (ev: WSEvent) => void) {
       }
     }
     ws.onclose = () => {
+      onStatus('disconnected')
       window.clearInterval(pingTimer)
       scheduleReconnect()
     }
@@ -75,6 +83,7 @@ export function createRealtime(onEvent: (ev: WSEvent) => void) {
   return {
     close() {
       closed = true
+      onStatus('disconnected')
       window.clearTimeout(reconnectTimer)
       window.clearInterval(pingTimer)
       ws?.close()

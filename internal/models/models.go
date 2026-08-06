@@ -296,9 +296,10 @@ type WhatsAppAccount struct {
 	Name               string    `gorm:"size:100;uniqueIndex:idx_wa_org_name;not null" json:"name"` // Unique per org, used as reference
 	AppID              string    `gorm:"size:100" json:"app_id"`                                    // Meta App ID
 	PhoneID            string    `gorm:"size:100;not null" json:"phone_id"`
-	BusinessID         string    `gorm:"size:100;not null" json:"business_id"`
-	AccessToken        string    `gorm:"type:text;not null" json:"-"` // encrypted
-	AppSecret          string    `gorm:"size:255" json:"-"`           // Meta App Secret for webhook signature verification
+	BusinessID         string    `gorm:"size:100;not null" json:"business_id"` // WhatsApp Business Account (WABA) ID
+	CatalogBusinessID  string    `gorm:"size:100" json:"catalog_business_id"`  // Owning Meta Business Portfolio ID
+	AccessToken        string    `gorm:"type:text;not null" json:"-"`          // encrypted
+	AppSecret          string    `gorm:"size:255" json:"-"`                    // Meta App Secret for webhook signature verification
 	WebhookVerifyToken string    `gorm:"size:255" json:"webhook_verify_token"`
 	APIVersion         string    `gorm:"size:20;default:'v21.0'" json:"api_version"`
 	IsDefaultIncoming  bool      `gorm:"default:false" json:"is_default_incoming"`
@@ -344,10 +345,14 @@ func (a *WhatsAppAccount) DecryptSecrets(encryptionKey string) {
 // Contact represents a WhatsApp contact/profile
 type Contact struct {
 	BaseModel
-	OrganizationID     uuid.UUID  `gorm:"type:uuid;index;not null" json:"organization_id"`
-	PhoneNumber        string     `gorm:"size:50;not null" json:"phone_number"`
-	ProfileName        string     `gorm:"size:255" json:"profile_name"`
-	WhatsAppAccount    string     `gorm:"size:100;index" json:"whatsapp_account"` // References WhatsAppAccount.Name
+	OrganizationID   uuid.UUID `gorm:"type:uuid;index;not null" json:"organization_id"`
+	PhoneNumber      string    `gorm:"size:50;not null" json:"phone_number"`
+	PhoneCountryCode string    `gorm:"size:10" json:"phone_country_code"`
+	ProfileName      string    `gorm:"size:255" json:"profile_name"`
+	CustomerID       string    `gorm:"size:100;index" json:"customer_id"`
+	FirstName        string    `gorm:"size:120" json:"first_name"`
+	LastName         string    `gorm:"size:120" json:"last_name"`
+	WhatsAppAccount  string    `gorm:"size:100;index" json:"whatsapp_account"` // References WhatsAppAccount.Name
 	// ChannelType identifies which messaging channel this conversation belongs to
 	// (whatsapp, instagram, messenger, telegram). Existing rows default to whatsapp.
 	ChannelType        string     `gorm:"size:20;index;default:'whatsapp'" json:"channel_type"`
@@ -358,6 +363,19 @@ type Contact struct {
 	Tags               JSONBArray `gorm:"type:jsonb;default:'[]'" json:"tags"`
 	Metadata           JSONB      `gorm:"type:jsonb;default:'{}'" json:"metadata"`
 	LastInboundAt      *time.Time `json:"last_inbound_at,omitempty"` // When customer last sent a message (for 24h window tracking)
+
+	// CRM profile fields
+	Email         string `gorm:"size:255;index" json:"email"`
+	CompanyName   string `gorm:"size:255" json:"company_name"`
+	TaxOffice     string `gorm:"size:255" json:"tax_office"`
+	TaxNumber     string `gorm:"size:50;index" json:"tax_number"`
+	Address       string `gorm:"type:text" json:"address"`
+	City          string `gorm:"size:100;index" json:"city"`
+	District      string `gorm:"size:100;index" json:"district"`
+	PostalCode    string `gorm:"size:20" json:"postal_code"`
+	PurchaseScore int    `gorm:"default:0;index" json:"purchase_score"`
+	HasPurchased  bool   `gorm:"default:false;index" json:"has_purchased"`
+	Note          string `gorm:"type:text" json:"note"`
 
 	// Marketing opt-out (from Meta user_preferences webhook)
 	MarketingOptOut bool `gorm:"default:false" json:"marketing_opt_out"`
@@ -382,8 +400,8 @@ func (Contact) TableName() string {
 // Message represents a WhatsApp message
 type Message struct {
 	BaseModel
-	OrganizationID    uuid.UUID     `gorm:"type:uuid;index;not null" json:"organization_id"`
-	WhatsAppAccount   string        `gorm:"size:100;index;not null" json:"whatsapp_account"` // References WhatsAppAccount.Name
+	OrganizationID  uuid.UUID `gorm:"type:uuid;index;not null" json:"organization_id"`
+	WhatsAppAccount string    `gorm:"size:100;index;not null" json:"whatsapp_account"` // References WhatsAppAccount.Name
 	// ChannelType mirrors the owning contact's channel so message queries can
 	// filter by channel without a join. Existing rows default to whatsapp.
 	ChannelType       string        `gorm:"size:20;index;default:'whatsapp'" json:"channel_type"`
@@ -436,6 +454,7 @@ type Template struct {
 	FooterContent   string     `gorm:"type:text" json:"footer_content"`
 	Buttons         JSONBArray `gorm:"type:jsonb;default:'[]'" json:"buttons"`
 	SampleValues    JSONBArray `gorm:"type:jsonb;default:'[]'" json:"sample_values"`
+	IsFirstMessage  bool       `gorm:"default:false;index" json:"is_first_message"`
 
 	// Authentication template fields
 	AddSecurityRecommendation bool `gorm:"default:false" json:"add_security_recommendation"`
