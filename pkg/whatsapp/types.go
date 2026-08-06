@@ -23,6 +23,14 @@ type Button struct {
 	URL   string `json:"url,omitempty"`  // URL for type="url" buttons
 }
 
+// ProductListSection is one named group of products in a product_list
+// interactive message (Meta requires at least one section, each with at
+// least one product).
+type ProductListSection struct {
+	Title              string   `json:"title"`
+	ProductRetailerIDs []string `json:"product_retailer_ids"`
+}
+
 // MetaAPIResponse represents a successful API response from Meta
 type MetaAPIResponse struct {
 	Messages []struct {

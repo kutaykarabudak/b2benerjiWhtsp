@@ -39,11 +39,31 @@ export interface TemplateInput {
   name: string
   language: string
   category: string
-  header_type?: string // '' or 'TEXT'
-  header_content?: string
+  header_type?: string // '' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT'
+  header_content?: string // text for TEXT headers, Meta media handle for IMAGE/VIDEO/DOCUMENT
   body_content: string
   footer_content?: string
   buttons?: TemplateButton[]
+}
+
+export interface TemplateHeaderMediaUpload {
+  handle: string
+  filename: string
+  mime_type: string
+  size: number
+}
+
+// Uploads a header sample file (image/video/document) to Meta and returns the
+// resumable-upload handle to use as `header_content` when header_type is
+// IMAGE/VIDEO/DOCUMENT.
+export async function uploadTemplateHeaderMedia(file: File, account: string): Promise<TemplateHeaderMediaUpload> {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('account', account)
+  const res = await api.post('/templates/upload-media', form, {
+    headers: { 'Content-Type': undefined as unknown as string }
+  })
+  return res.data
 }
 
 export async function createTemplate(input: TemplateInput): Promise<string> {

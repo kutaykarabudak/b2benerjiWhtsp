@@ -45,11 +45,18 @@ type OutgoingMessageRequest struct {
 	Caption       string
 
 	// Interactive messages
-	InteractiveType string            // "button", "list", "cta_url", "voice_call"
+	InteractiveType string            // "button", "list", "cta_url", "voice_call", "catalog", "product", "product_list"
 	BodyText        string            // Body text for interactive messages
 	Buttons         []whatsapp.Button // For button/list messages
 	ButtonText      string            // For CTA URL button
 	URL             string            // For CTA URL button
+
+	// catalog/product/product_list interactive (free-form session messages only)
+	CatalogID                  string                        // Meta catalog id ("product"/"product_list")
+	CatalogThumbnailRetailerID string                        // Optional thumbnail SKU ("catalog")
+	ProductRetailerID          string                        // Single product SKU ("product")
+	CatalogHeaderText          string                        // Header text ("product_list")
+	ProductSections            []whatsapp.ProductListSection // Sections of SKUs ("product_list")
 
 	// voice_call interactive (WhatsApp Business Calling)
 	DisplayText      string // Button face label
@@ -195,6 +202,12 @@ func (a *App) SendOutgoingMessage(ctx context.Context, req OutgoingMessageReques
 				return a.WhatsApp.SendCTAURLButton(sendCtx, waAccount, rcpt, req.BodyText, req.ButtonText, req.URL)
 			case "voice_call":
 				return a.WhatsApp.SendVoiceCallButton(sendCtx, waAccount, rcpt, req.BodyText, req.DisplayText, req.TTLMinutes, req.VoiceCallPayload)
+			case "catalog":
+				return a.WhatsApp.SendCatalogMessage(sendCtx, waAccount, rcpt, req.BodyText, req.CatalogThumbnailRetailerID)
+			case "product":
+				return a.WhatsApp.SendProductMessage(sendCtx, waAccount, rcpt, req.BodyText, req.CatalogID, req.ProductRetailerID)
+			case "product_list":
+				return a.WhatsApp.SendProductListMessage(sendCtx, waAccount, rcpt, req.BodyText, req.CatalogHeaderText, req.CatalogID, req.ProductSections)
 			default: // "button" or "list"
 				return a.WhatsApp.SendInteractiveButtons(sendCtx, waAccount, rcpt, req.BodyText, req.Buttons)
 			}
@@ -404,6 +417,37 @@ func (a *App) buildInteractiveData(req OutgoingMessageRequest) models.JSONB {
 			"body": req.BodyText,
 			"rows": rows,
 		}
+	case "catalog":
+		out := models.JSONB{
+			"type": "catalog",
+			"body": req.BodyText,
+		}
+		if req.CatalogThumbnailRetailerID != "" {
+			out["thumbnail_product_retailer_id"] = req.CatalogThumbnailRetailerID
+		}
+		return out
+	case "product":
+		return models.JSONB{
+			"type":                "product",
+			"body":                req.BodyText,
+			"catalog_id":          req.CatalogID,
+			"product_retailer_id": req.ProductRetailerID,
+		}
+	case "product_list":
+		sections := make([]any, len(req.ProductSections))
+		for i, sec := range req.ProductSections {
+			sections[i] = map[string]any{
+				"title":                 sec.Title,
+				"product_retailer_ids":  sec.ProductRetailerIDs,
+			}
+		}
+		return models.JSONB{
+			"type":       "product_list",
+			"body":       req.BodyText,
+			"header":     req.CatalogHeaderText,
+			"catalog_id": req.CatalogID,
+			"sections":   sections,
+		}
 	default: // "button"
 		buttons := make([]any, len(req.Buttons))
 		for i, btn := range req.Buttons {
@@ -604,7 +648,16 @@ func (a *App) getMessagePreview(req OutgoingMessageRequest) string {
 		}
 		return "[Document]"
 	case models.MessageTypeInteractive:
-		return truncateString(req.BodyText, 100)
+		switch req.InteractiveType {
+		case "catalog":
+			return "[Katalog]"
+		case "product":
+			return "[Ürün]"
+		case "product_list":
+			return "[Ürün listesi]"
+		default:
+			return truncateString(req.BodyText, 100)
+		}
 	case models.MessageTypeFlow:
 		return truncateString(req.BodyText, 100)
 	case models.MessageTypeTemplate:

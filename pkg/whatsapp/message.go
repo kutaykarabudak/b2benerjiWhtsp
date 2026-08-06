@@ -323,6 +323,140 @@ func (c *Client) SendVoiceCallButton(ctx context.Context, account *Account, rcpt
 	return messageID, nil
 }
 
+// SendCatalogMessage shares the WhatsApp account's whole connected catalog in
+// a free-form (session) message. thumbnailRetailerID is optional — pass ""
+// to let Meta show its own default catalog thumbnail.
+func (c *Client) SendCatalogMessage(ctx context.Context, account *Account, rcpt Recipient, bodyText, thumbnailRetailerID string) (string, error) {
+	action := map[string]any{
+		"name": "catalog_message",
+	}
+	if thumbnailRetailerID != "" {
+		action["parameters"] = map[string]any{
+			"thumbnail_product_retailer_id": thumbnailRetailerID,
+		}
+	}
+
+	interactive := map[string]any{
+		"type": "catalog_message",
+		"body": map[string]any{
+			"text": bodyText,
+		},
+		"action": action,
+	}
+
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"type":              "interactive",
+		"interactive":       interactive,
+	}
+	rcpt.SetOnPayload(payload)
+
+	respBody, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		c.Log.Error("Failed to send catalog message", "error", err, "phone", rcpt.Phone)
+		return "", fmt.Errorf("failed to send catalog message: %w", err)
+	}
+	return parseMessageID(respBody)
+}
+
+// SendProductMessage shares a single catalog product in a free-form (session)
+// message.
+func (c *Client) SendProductMessage(ctx context.Context, account *Account, rcpt Recipient, bodyText, catalogID, productRetailerID string) (string, error) {
+	if catalogID == "" || productRetailerID == "" {
+		return "", fmt.Errorf("catalog id and product retailer id are required")
+	}
+
+	interactive := map[string]any{
+		"type": "product",
+		"body": map[string]any{
+			"text": bodyText,
+		},
+		"action": map[string]any{
+			"catalog_id":         catalogID,
+			"product_retailer_id": productRetailerID,
+		},
+	}
+
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"type":              "interactive",
+		"interactive":       interactive,
+	}
+	rcpt.SetOnPayload(payload)
+
+	respBody, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		c.Log.Error("Failed to send product message", "error", err, "phone", rcpt.Phone)
+		return "", fmt.Errorf("failed to send product message: %w", err)
+	}
+	return parseMessageID(respBody)
+}
+
+// SendProductListMessage shares a multi-section list of catalog products in a
+// free-form (session) message. Meta requires a text header and at least one
+// section with at least one product.
+func (c *Client) SendProductListMessage(ctx context.Context, account *Account, rcpt Recipient, bodyText, headerText, catalogID string, sections []ProductListSection) (string, error) {
+	if catalogID == "" {
+		return "", fmt.Errorf("catalog id is required")
+	}
+	if headerText == "" {
+		return "", fmt.Errorf("header text is required")
+	}
+	if len(sections) == 0 {
+		return "", fmt.Errorf("at least one section is required")
+	}
+
+	sectionPayloads := make([]map[string]any, 0, len(sections))
+	for _, sec := range sections {
+		if len(sec.ProductRetailerIDs) == 0 {
+			continue
+		}
+		items := make([]map[string]any, 0, len(sec.ProductRetailerIDs))
+		for _, id := range sec.ProductRetailerIDs {
+			items = append(items, map[string]any{"product_retailer_id": id})
+		}
+		sectionPayloads = append(sectionPayloads, map[string]any{
+			"title":         sec.Title,
+			"product_items": items,
+		})
+	}
+	if len(sectionPayloads) == 0 {
+		return "", fmt.Errorf("at least one section with a product is required")
+	}
+
+	interactive := map[string]any{
+		"type": "product_list",
+		"header": map[string]any{
+			"type": "text",
+			"text": headerText,
+		},
+		"body": map[string]any{
+			"text": bodyText,
+		},
+		"action": map[string]any{
+			"catalog_id": catalogID,
+			"sections":   sectionPayloads,
+		},
+	}
+
+	payload := map[string]any{
+		"messaging_product": "whatsapp",
+		"recipient_type":    "individual",
+		"type":              "interactive",
+		"interactive":       interactive,
+	}
+	rcpt.SetOnPayload(payload)
+
+	respBody, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		c.Log.Error("Failed to send product list message", "error", err, "phone", rcpt.Phone)
+		return "", fmt.Errorf("failed to send product list message: %w", err)
+	}
+	return parseMessageID(respBody)
+}
+
 // TemplateParam represents a parameter for template message
 type TemplateParam struct {
 	Type  string `json:"type"`

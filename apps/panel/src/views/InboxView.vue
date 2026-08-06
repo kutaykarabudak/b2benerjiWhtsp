@@ -11,6 +11,7 @@ import {
   sendMedia,
   sendLocation,
   sendContactCard,
+  sendCatalogMessage,
   markRead,
   updateContactInfo,
   messageBody,
@@ -19,6 +20,7 @@ import {
   type ChannelType
 } from '@/services/inbox'
 import { listTemplates, type Template } from '@/services/templates'
+import { listCatalogs, listProducts, type Catalog, type Product } from '@/services/catalog'
 import { useRealtimeStore } from '@/stores/realtime'
 
 // Display metadata for all channel types (used for conversation icons).
@@ -62,8 +64,23 @@ const pendingFile = ref<File | null>(null)
 const pendingMediaType = ref<'image' | 'video' | 'audio' | 'document'>('image')
 const pendingCaption = ref('')
 const pendingPreviewURL = ref('')
+const isDraggingOver = ref(false)
+let dragDepth = 0
 const showContactCard = ref(false)
 const contactCard = ref({ name: '', phone: '', email: '', company: '' })
+
+// Catalog/product message composer
+const showCatalogPicker = ref(false)
+const catalogPickerMode = ref<'catalog' | 'product' | 'product_list'>('catalog')
+const catalogPickerCatalogs = ref<Catalog[]>([])
+const catalogPickerCatalogId = ref('')
+const catalogPickerProducts = ref<Product[]>([])
+const catalogPickerSelected = ref<Set<string>>(new Set())
+const catalogPickerSearch = ref('')
+const catalogPickerBody = ref('')
+const catalogPickerHeaderText = ref('')
+const loadingCatalogPicker = ref(false)
+const sendingCatalog = ref(false)
 const supportedDocumentTypes = new Set([
   'application/pdf',
   'text/plain',
@@ -237,11 +254,18 @@ function chooseCamera() {
   cameraInput.value?.click()
 }
 
-function onAttachmentChosen(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file || !selected.value) return
+function inferMediaType(file: File): 'image' | 'video' | 'audio' | 'document' {
+  if (file.type.startsWith('image/')) return 'image'
+  if (file.type.startsWith('video/')) return 'video'
+  if (file.type.startsWith('audio/')) return 'audio'
+  return 'document'
+}
+
+// Shared by the file-picker (click-to-attach) and drag-and-drop paths so
+// validation/preview-state logic only lives in one place.
+function acceptFile(file: File) {
+  if (!selected.value) return
+  pendingMediaType.value = inferMediaType(file)
   if (pendingMediaType.value === 'document' && !supportedDocumentTypes.has(file.type)) {
     alert('Bu belge türü WhatsApp tarafından desteklenmiyor. PDF, TXT, DOC/DOCX, XLS/XLSX veya PPT/PPTX seçin.')
     return
@@ -250,6 +274,38 @@ function onAttachmentChosen(e: Event) {
   pendingCaption.value = draft.value.trim()
   if (pendingPreviewURL.value) URL.revokeObjectURL(pendingPreviewURL.value)
   pendingPreviewURL.value = ['image', 'video', 'audio'].includes(pendingMediaType.value) ? URL.createObjectURL(file) : ''
+}
+
+function onAttachmentChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !selected.value) return
+  acceptFile(file)
+}
+
+function onDragEnter(e: DragEvent) {
+  if (!selected.value || freeformLocked.value) return
+  if (!e.dataTransfer?.types.includes('Files')) return
+  dragDepth++
+  isDraggingOver.value = true
+}
+
+function onDragOver(_e: DragEvent) {
+  // .prevent modifier on the listener already allows drop; nothing else to do.
+}
+
+function onDragLeave(_e: DragEvent) {
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) isDraggingOver.value = false
+}
+
+function onFileDrop(e: DragEvent) {
+  dragDepth = 0
+  isDraggingOver.value = false
+  if (!selected.value || freeformLocked.value) return
+  const file = e.dataTransfer?.files?.[0]
+  if (file) acceptFile(file)
 }
 
 function cancelAttachment() {
@@ -291,6 +347,122 @@ async function submitContactCard() {
     alert(err?.response?.data?.message || 'Kişi kartı gönderilemedi.')
   } finally {
     sending.value = false
+  }
+}
+
+const selectedPickerCatalog = computed(() =>
+  catalogPickerCatalogs.value.find((c) => c.id === catalogPickerCatalogId.value) || null
+)
+
+const filteredCatalogProducts = computed(() => {
+  const q = catalogPickerSearch.value.trim().toLowerCase()
+  if (!q) return catalogPickerProducts.value
+  return catalogPickerProducts.value.filter(
+    (p) => p.name.toLowerCase().includes(q) || p.retailer_id.toLowerCase().includes(q)
+  )
+})
+
+const canSendCatalogSelection = computed(() => {
+  if (sendingCatalog.value) return false
+  if (catalogPickerMode.value === 'catalog') return true
+  if (!selectedPickerCatalog.value) return false
+  if (catalogPickerMode.value === 'product') return catalogPickerSelected.value.size === 1
+  return catalogPickerSelected.value.size > 0
+})
+
+function setCatalogPickerMode(mode: 'catalog' | 'product' | 'product_list') {
+  catalogPickerMode.value = mode
+  catalogPickerSelected.value = new Set()
+}
+
+async function selectPickerCatalog(catalog: Catalog) {
+  catalogPickerCatalogId.value = catalog.id
+  catalogPickerSelected.value = new Set()
+  loadingCatalogPicker.value = true
+  try {
+    catalogPickerProducts.value = await listProducts(catalog.id)
+  } catch {
+    catalogPickerProducts.value = []
+  } finally {
+    loadingCatalogPicker.value = false
+  }
+}
+
+function onPickerCatalogChange(e: Event) {
+  const id = (e.target as HTMLSelectElement).value
+  const catalog = catalogPickerCatalogs.value.find((c) => c.id === id)
+  if (catalog) selectPickerCatalog(catalog)
+}
+
+async function openCatalogPicker() {
+  if (!selected.value) return
+  showCatalogPicker.value = true
+  catalogPickerMode.value = 'catalog'
+  catalogPickerCatalogId.value = ''
+  catalogPickerProducts.value = []
+  catalogPickerSelected.value = new Set()
+  catalogPickerSearch.value = ''
+  catalogPickerBody.value = ''
+  catalogPickerHeaderText.value = ''
+  loadingCatalogPicker.value = true
+  try {
+    catalogPickerCatalogs.value = await listCatalogs(selected.value.whatsapp_account || '')
+    if (catalogPickerCatalogs.value.length === 1) {
+      await selectPickerCatalog(catalogPickerCatalogs.value[0])
+      return
+    }
+  } catch {
+    catalogPickerCatalogs.value = []
+  } finally {
+    loadingCatalogPicker.value = false
+  }
+}
+
+function closeCatalogPicker() {
+  showCatalogPicker.value = false
+}
+
+function toggleProductSelect(retailerId: string) {
+  const next = new Set(catalogPickerSelected.value)
+  if (next.has(retailerId)) {
+    next.delete(retailerId)
+  } else {
+    if (catalogPickerMode.value === 'product') next.clear()
+    next.add(retailerId)
+  }
+  catalogPickerSelected.value = next
+}
+
+async function sendCatalogSelection() {
+  if (!selected.value || !canSendCatalogSelection.value) return
+  sendingCatalog.value = true
+  try {
+    const body = catalogPickerBody.value.trim()
+    if (catalogPickerMode.value === 'catalog') {
+      await sendCatalogMessage(selected.value.id, { mode: 'catalog', body })
+    } else if (catalogPickerMode.value === 'product') {
+      const retailerId = Array.from(catalogPickerSelected.value)[0]
+      await sendCatalogMessage(selected.value.id, {
+        mode: 'product',
+        body,
+        catalogId: selectedPickerCatalog.value!.meta_catalog_id,
+        productRetailerId: retailerId
+      })
+    } else {
+      await sendCatalogMessage(selected.value.id, {
+        mode: 'product_list',
+        body,
+        catalogId: selectedPickerCatalog.value!.meta_catalog_id,
+        headerText: catalogPickerHeaderText.value.trim() || 'Ürünler',
+        sections: [{ title: 'Ürünler', productRetailerIds: Array.from(catalogPickerSelected.value) }]
+      })
+    }
+    closeCatalogPicker()
+    await loadMessages()
+  } catch (err: any) {
+    alert(err?.response?.data?.message || 'Katalog mesajı gönderilemedi.')
+  } finally {
+    sendingCatalog.value = false
   }
 }
 
@@ -574,7 +746,16 @@ function messageMediaURL(message: Message) {
       </div>
 
       <!-- Chat pane -->
-      <div class="chat">
+      <div
+        class="chat"
+        @dragenter.prevent="onDragEnter"
+        @dragover.prevent="onDragOver"
+        @dragleave.prevent="onDragLeave"
+        @drop.prevent="onFileDrop"
+      >
+        <div v-if="isDraggingOver" class="drop-overlay">
+          <div class="drop-overlay-inner">📎 Dosyayı buraya bırakın</div>
+        </div>
         <template v-if="selected">
           <div class="chat-head">
             <button class="back-btn" @click="backToList" aria-label="Geri">←</button>
@@ -665,6 +846,14 @@ function messageMediaURL(message: Message) {
                   </div>
                   <p v-if="m.interactive_data?.text" class="order-note">{{ m.interactive_data.text }}</p>
                 </div>
+                <div
+                  v-else-if="['catalog', 'product', 'product_list'].includes(m.interactive_data?.type || '')"
+                  class="catalog-msg-label"
+                >
+                  <span v-if="m.interactive_data?.type === 'catalog'">📦 Katalog mesajı gönderildi</span>
+                  <span v-else-if="m.interactive_data?.type === 'product'">🛍️ Ürün gönderildi</span>
+                  <span v-else>🛍️ Ürün listesi gönderildi</span>
+                </div>
                 <a
                   v-else-if="m.message_type === 'location'"
                   :href="messageBody(m)"
@@ -728,6 +917,11 @@ function messageMediaURL(message: Message) {
                   type="button"
                   @click="attachmentMenuOpen = false; showContactCard = true"
                 ><span>👤</span> Kişi</button>
+                <button
+                  v-if="canUseButtons"
+                  type="button"
+                  @click="attachmentMenuOpen = false; openCatalogPicker()"
+                ><span>🛒</span> Katalog</button>
               </div>
             </div>
             <input
@@ -869,6 +1063,61 @@ function messageMediaURL(message: Message) {
         </div>
       </section>
     </div>
+
+    <div v-if="showCatalogPicker" class="media-modal-backdrop" @click.self="closeCatalogPicker">
+      <section class="media-modal catalog-picker-modal" role="dialog" aria-modal="true" aria-label="Katalog gönder">
+        <header>
+          <div><b>Katalog gönder</b><small>Yalnızca açık yanıt penceresinde gönderilebilir.</small></div>
+          <button type="button" aria-label="Kapat" @click="closeCatalogPicker">×</button>
+        </header>
+
+        <div class="catalog-picker-modes">
+          <button type="button" :class="{ on: catalogPickerMode === 'catalog' }" @click="setCatalogPickerMode('catalog')">Tüm Katalog</button>
+          <button type="button" :class="{ on: catalogPickerMode === 'product' }" @click="setCatalogPickerMode('product')">Tek Ürün</button>
+          <button type="button" :class="{ on: catalogPickerMode === 'product_list' }" @click="setCatalogPickerMode('product_list')">Ürün Listesi</button>
+        </div>
+
+        <select v-if="catalogPickerCatalogs.length > 1" :value="catalogPickerCatalogId" @change="onPickerCatalogChange">
+          <option v-for="c in catalogPickerCatalogs" :key="c.id" :value="c.id">{{ c.name }} ({{ c.product_count }})</option>
+        </select>
+
+        <div v-if="!loadingCatalogPicker && !catalogPickerCatalogs.length" class="no-opening-template">
+          Bu hesapta senkronize katalog yok. Önce Katalog ekranından bir katalog senkronlayın.
+        </div>
+
+        <textarea v-model="catalogPickerBody" rows="2" placeholder="Mesaj metni (opsiyonel)…"></textarea>
+        <input v-if="catalogPickerMode === 'product_list'" v-model="catalogPickerHeaderText" placeholder="Başlık (ör. Ürünlerimiz)" />
+
+        <template v-if="catalogPickerMode !== 'catalog' && catalogPickerCatalogs.length">
+          <input v-model="catalogPickerSearch" class="catalog-picker-search" placeholder="Ürün ara…" />
+          <div v-if="loadingCatalogPicker" class="hint muted">Yükleniyor…</div>
+          <div v-else class="catalog-picker-products">
+            <label v-for="p in filteredCatalogProducts" :key="p.retailer_id" class="catalog-picker-product">
+              <input
+                :type="catalogPickerMode === 'product' ? 'radio' : 'checkbox'"
+                name="catalog-picker-product"
+                :checked="catalogPickerSelected.has(p.retailer_id)"
+                @change="toggleProductSelect(p.retailer_id)"
+              />
+              <img v-if="p.image_url" :src="p.image_url" :alt="p.name" />
+              <div v-else class="order-image-empty">▦</div>
+              <div class="catalog-picker-product-copy">
+                <b>{{ p.name }}</b>
+                <small>{{ money(p.price / 100, p.currency) }}</small>
+              </div>
+            </label>
+            <div v-if="!filteredCatalogProducts.length" class="hint muted">Ürün bulunamadı.</div>
+          </div>
+        </template>
+
+        <div class="media-modal-actions">
+          <button type="button" @click="closeCatalogPicker">İptal</button>
+          <button type="button" class="primary" :disabled="!canSendCatalogSelection" @click="sendCatalogSelection">
+            {{ sendingCatalog ? 'Gönderiliyor…' : 'Gönder' }}
+          </button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -916,7 +1165,9 @@ function messageMediaURL(message: Message) {
 .ch-icon { margin-right: 2px; }
 .badge { background: var(--brand); color: #fff; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; flex-shrink: 0; }
 
-.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; background-color: #edf2ef; background-image: radial-gradient(rgba(68,102,89,.055) 1px,transparent 1px); background-size: 18px 18px; }
+.chat { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; background-color: #edf2ef; background-image: radial-gradient(rgba(68,102,89,.055) 1px,transparent 1px); background-size: 18px 18px; }
+.drop-overlay { position: absolute; inset: 8px; z-index: 50; display: grid; place-items: center; border: 3px dashed var(--brand); border-radius: 16px; background: rgba(11,149,103,.12); pointer-events: none; }
+.drop-overlay-inner { padding: 14px 22px; border-radius: 14px; background: #fff; box-shadow: 0 10px 30px rgba(11,149,103,.25); color: var(--brand); font-weight: 650; }
 .empty-chat { width: min(430px,80%); margin: auto; display: flex; flex-direction: column; align-items: center; text-align: center; }.empty-chat-icon { width: 78px; height: 78px; display: grid; place-items: center; border-radius: 25px; background: linear-gradient(145deg,#dff8ec,#ccecdf); font-size: 34px; box-shadow: 0 10px 30px rgba(11,149,103,.12); }.empty-chat h2 { margin: 18px 0 5px; font-size: 20px; }.empty-chat p { margin: 0; color: var(--muted); font-size: 13px; }.empty-live { display: flex; align-items: center; gap: 6px; margin-top: 17px; padding: 6px 10px; border-radius: 999px; color: var(--muted); background: rgba(255,255,255,.7); font-size: 10px; }.empty-live i { width: 7px; height: 7px; border-radius: 50%; background: #a9b4b8; }.empty-live.connected { color: #087a55; }.empty-live.connected i { background: #20c77a; box-shadow: 0 0 0 4px rgba(32,199,122,.12); }
 .chat-head {
   display: flex; align-items: center; gap: 10px;
@@ -1021,6 +1272,21 @@ function messageMediaURL(message: Message) {
 .media-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .contact-card-modal { display: flex; flex-direction: column; gap: 9px; width: min(440px, 100%); }
 .contact-card-modal header { margin-bottom: 3px; }
+.catalog-msg-label { padding: 4px 2px; font-weight: 600; }
+.catalog-picker-modal { display: flex; flex-direction: column; gap: 9px; width: min(480px, 100%); }
+.catalog-picker-modal header { margin-bottom: 3px; }
+.catalog-picker-modes { display: flex; gap: 6px; }
+.catalog-picker-modes button { flex: 1; min-height: 34px; padding: 6px 8px; font-size: 12px; }
+.catalog-picker-modes button.on { background: var(--brand-soft); border-color: rgba(11,149,103,.18); color: var(--brand); font-weight: 650; }
+.catalog-picker-search { margin-top: 2px; }
+.catalog-picker-products { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.catalog-picker-product { display: grid; grid-template-columns: auto 38px minmax(0,1fr); align-items: center; gap: 9px; padding: 7px 4px; border-radius: 8px; cursor: pointer; }
+.catalog-picker-product:hover { background: var(--bg-2); }
+.catalog-picker-product input { width: auto; }
+.catalog-picker-product img, .catalog-picker-product .order-image-empty { width: 38px; height: 38px; border-radius: 8px; object-fit: cover; background: #edf4f1; }
+.catalog-picker-product-copy { display: flex; flex-direction: column; min-width: 0; }
+.catalog-picker-product-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.catalog-picker-product-copy small { color: var(--muted); font-size: 11px; }
 
 /* --- Mobile: WhatsApp-style single column --- */
 @media (max-width: 768px) {

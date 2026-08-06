@@ -612,7 +612,7 @@ type SendMessageRequest struct {
 
 // InteractiveContent holds interactive message data
 type InteractiveContent struct {
-	Type       string          `json:"type"`                  // "button", "list", "cta_url", "voice_call", "flow"
+	Type       string          `json:"type"`                  // "button", "list", "cta_url", "voice_call", "flow", "catalog", "product", "product_list"
 	Body       string          `json:"body"`                  // Body text
 	Buttons    []ButtonContent `json:"buttons,omitempty"`     // For button type
 	ButtonText string          `json:"button_text,omitempty"` // CTA label for cta_url and flow
@@ -628,6 +628,20 @@ type InteractiveContent struct {
 	FlowID      string `json:"flow_id,omitempty"`
 	FirstScreen string `json:"first_screen,omitempty"`
 	Header      string `json:"header,omitempty"`
+	// catalog/product/product_list only: references into this org's synced
+	// Catalog/CatalogProduct rows — resolved and ownership-checked below,
+	// never trusted as bare Meta ids from the client.
+	CatalogID           string                `json:"catalog_id,omitempty"`
+	ThumbnailRetailerID string                `json:"thumbnail_retailer_id,omitempty"`
+	ProductRetailerID   string                `json:"product_retailer_id,omitempty"`
+	Sections            []ProductSectionInput `json:"sections,omitempty"`
+}
+
+// ProductSectionInput is one named group of product SKUs for a product_list
+// interactive send.
+type ProductSectionInput struct {
+	Title              string   `json:"title"`
+	ProductRetailerIDs []string `json:"product_retailer_ids"`
 }
 
 // ButtonContent represents a button in interactive messages
@@ -765,6 +779,77 @@ func (a *App) SendMessage(r *fastglue.Request) error {
 			// agent in O(1) (Meta does not currently echo the payload).
 			// TTL matches the button's clickable lifetime.
 			a.MarkPendingStickyCall(context.Background(), orgID, contact.PhoneNumber, userID, req.Interactive.TTLMinutes)
+		}
+
+		// catalog/product/product_list: Meta only allows these inside the
+		// free-form session window (requireAgentServiceWindow above already
+		// enforces that), never as templates. Every referenced catalog_id /
+		// product_retailer_id is resolved against this org's own synced rows
+		// so an agent can't send another org's catalog by guessing its Meta id.
+		if req.Interactive.Type == "catalog" || req.Interactive.Type == "product" || req.Interactive.Type == "product_list" {
+			if account.CatalogBusinessID == "" {
+				return r.SendErrorEnvelope(fasthttp.StatusBadRequest,
+					"Bu WhatsApp hesabında katalog bağlı değil. Önce Katalog ekranından bir katalog senkronlayın.",
+					nil, "")
+			}
+
+			switch req.Interactive.Type {
+			case "product":
+				if req.Interactive.CatalogID == "" || req.Interactive.ProductRetailerID == "" {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "catalog_id and product_retailer_id are required", nil, "")
+				}
+				var catalog models.Catalog
+				if err := a.DB.Where("organization_id = ? AND meta_catalog_id = ?", orgID, req.Interactive.CatalogID).First(&catalog).Error; err != nil {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Catalog not found for this organization", nil, "")
+				}
+				var product models.CatalogProduct
+				if err := a.DB.Where("catalog_id = ? AND organization_id = ? AND retailer_id = ?", catalog.ID, orgID, req.Interactive.ProductRetailerID).First(&product).Error; err != nil {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Product not found in this catalog", nil, "")
+				}
+				msgReq.CatalogID = req.Interactive.CatalogID
+				msgReq.ProductRetailerID = req.Interactive.ProductRetailerID
+
+			case "product_list":
+				if req.Interactive.CatalogID == "" || len(req.Interactive.Sections) == 0 {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "catalog_id and at least one section are required", nil, "")
+				}
+				var catalog models.Catalog
+				if err := a.DB.Where("organization_id = ? AND meta_catalog_id = ?", orgID, req.Interactive.CatalogID).First(&catalog).Error; err != nil {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Catalog not found for this organization", nil, "")
+				}
+				sections := make([]whatsapp.ProductListSection, 0, len(req.Interactive.Sections))
+				for _, sec := range req.Interactive.Sections {
+					if len(sec.ProductRetailerIDs) == 0 {
+						continue
+					}
+					var count int64
+					a.DB.Model(&models.CatalogProduct{}).
+						Where("catalog_id = ? AND organization_id = ? AND retailer_id IN ?", catalog.ID, orgID, sec.ProductRetailerIDs).
+						Count(&count)
+					if count != int64(len(sec.ProductRetailerIDs)) {
+						return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "One or more products not found in this catalog", nil, "")
+					}
+					sections = append(sections, whatsapp.ProductListSection{Title: sec.Title, ProductRetailerIDs: sec.ProductRetailerIDs})
+				}
+				if len(sections) == 0 {
+					return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "At least one section with a product is required", nil, "")
+				}
+				msgReq.CatalogID = req.Interactive.CatalogID
+				msgReq.CatalogHeaderText = req.Interactive.Header
+				msgReq.ProductSections = sections
+
+			default: // "catalog": share the whole connected catalog
+				if req.Interactive.ThumbnailRetailerID != "" {
+					var count int64
+					a.DB.Model(&models.CatalogProduct{}).
+						Where("organization_id = ? AND retailer_id = ?", orgID, req.Interactive.ThumbnailRetailerID).
+						Count(&count)
+					if count == 0 {
+						return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Thumbnail product not found for this organization", nil, "")
+					}
+				}
+				msgReq.CatalogThumbnailRetailerID = req.Interactive.ThumbnailRetailerID
+			}
 		}
 	}
 

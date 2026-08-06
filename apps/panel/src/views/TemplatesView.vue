@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import {
   listTemplates,
   syncTemplates,
@@ -8,6 +8,7 @@ import {
   submitTemplate,
   deleteTemplate,
   setTemplateFirstMessage,
+  uploadTemplateHeaderMedia,
   type Template,
   type TemplateButton
 } from '@/services/templates'
@@ -65,16 +66,55 @@ const saving = ref(false)
 const editError = ref('')
 const form = ref(blankForm())
 
+type HeaderType = '' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT'
+
 function blankForm() {
   return {
     whatsapp_account: '',
     name: '',
     language: 'tr',
     category: 'MARKETING',
+    header_type: '' as HeaderType,
     header_content: '',
+    header_media_filename: '',
     body_content: '',
     footer_content: '',
     buttons: [] as TemplateButton[]
+  }
+}
+
+const uploadingHeaderMedia = ref(false)
+const headerUploadError = ref('')
+
+const headerFileAccept = computed(() => {
+  if (form.value.header_type === 'IMAGE') return 'image/*'
+  if (form.value.header_type === 'VIDEO') return 'video/*'
+  if (form.value.header_type === 'DOCUMENT') return '.pdf'
+  return '*/*'
+})
+
+// Switching header type invalidates whatever text/handle was in header_content.
+function onHeaderTypeChange() {
+  form.value.header_content = ''
+  form.value.header_media_filename = ''
+  headerUploadError.value = ''
+}
+
+async function onHeaderFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !form.value.whatsapp_account) return
+  uploadingHeaderMedia.value = true
+  headerUploadError.value = ''
+  try {
+    const result = await uploadTemplateHeaderMedia(file, form.value.whatsapp_account)
+    form.value.header_content = result.handle
+    form.value.header_media_filename = result.filename
+  } catch (e: any) {
+    headerUploadError.value = e?.response?.data?.message || 'Dosya yüklenemedi.'
+  } finally {
+    uploadingHeaderMedia.value = false
   }
 }
 
@@ -88,12 +128,15 @@ function openEditor() {
 
 function startEditTpl(t: Template) {
   editId.value = t.id
+  const headerType = (t.header_type || (t.header_content ? 'TEXT' : '')) as HeaderType
   form.value = {
     whatsapp_account: t.whatsapp_account,
     name: t.name,
     language: t.language,
     category: t.category,
+    header_type: headerType,
     header_content: t.header_content || '',
+    header_media_filename: ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(headerType) ? 'Yüklenen dosya' : '',
     body_content: t.body_content,
     footer_content: t.footer_content || '',
     buttons: Array.isArray(t.buttons)
@@ -132,6 +175,10 @@ async function saveTemplate(submitAfter: boolean) {
     editError.value = 'Ad ve gövde zorunlu.'
     return
   }
+  if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(f.header_type) && !f.header_content.trim()) {
+    editError.value = 'Seçilen başlık türü için bir dosya yükleyin.'
+    return
+  }
   saving.value = true
   try {
     const payload = {
@@ -139,8 +186,8 @@ async function saveTemplate(submitAfter: boolean) {
       name: f.name.trim(),
       language: f.language.trim() || 'tr',
       category: f.category,
-      header_type: f.header_content.trim() ? 'TEXT' : '',
-      header_content: f.header_content.trim(),
+      header_type: f.header_type,
+      header_content: f.header_type === 'TEXT' ? f.header_content.trim() : f.header_content,
       body_content: f.body_content.trim(),
       footer_content: f.footer_content.trim(),
       buttons: f.buttons.filter((b) => b.text.trim())
@@ -243,8 +290,31 @@ onMounted(load)
         </div>
       </div>
       <div class="field">
-        <label>Başlık (opsiyonel, metin)</label>
+        <label>Başlık türü (opsiyonel)</label>
+        <select v-model="form.header_type" @change="onHeaderTypeChange">
+          <option value="">Yok</option>
+          <option value="TEXT">Metin</option>
+          <option value="IMAGE">Görsel</option>
+          <option value="VIDEO">Video</option>
+          <option value="DOCUMENT">PDF / Belge</option>
+        </select>
+      </div>
+      <div v-if="form.header_type === 'TEXT'" class="field">
+        <label>Başlık metni</label>
         <input v-model="form.header_content" placeholder="Ör. Kampanya!" />
+      </div>
+      <div v-else-if="form.header_type === 'IMAGE' || form.header_type === 'VIDEO' || form.header_type === 'DOCUMENT'" class="field">
+        <label>Başlık dosyası *</label>
+        <input
+          type="file"
+          :accept="headerFileAccept"
+          :disabled="!form.whatsapp_account || uploadingHeaderMedia"
+          @change="onHeaderFileChosen"
+        />
+        <span v-if="!form.whatsapp_account" class="muted small">Önce kanal seçin.</span>
+        <span v-else-if="uploadingHeaderMedia" class="muted small">Yükleniyor…</span>
+        <span v-else-if="form.header_media_filename" class="muted small">✓ {{ form.header_media_filename }}</span>
+        <p v-if="headerUploadError" class="error small">{{ headerUploadError }}</p>
       </div>
       <div class="field">
         <label>Gövde * <span class="muted small">(değişken için {{ VAR1 }} kullanın)</span></label>
@@ -305,7 +375,12 @@ onMounted(load)
         </div>
         <span :class="['status', statusClass(t.status)]">{{ t.status }}</span>
       </div>
-      <div v-if="t.header_content" class="tpl-header">{{ t.header_content }}</div>
+      <div v-if="t.header_content" class="tpl-header">
+        <template v-if="t.header_type === 'IMAGE'">🖼️ Görsel başlık</template>
+        <template v-else-if="t.header_type === 'VIDEO'">🎥 Video başlık</template>
+        <template v-else-if="t.header_type === 'DOCUMENT'">📄 Belge başlık</template>
+        <template v-else>{{ t.header_content }}</template>
+      </div>
       <div class="tpl-body">{{ t.body_content }}</div>
       <div v-if="t.footer_content" class="tpl-footer muted small">{{ t.footer_content }}</div>
       <div v-if="t.buttons?.length" class="tpl-buttons">

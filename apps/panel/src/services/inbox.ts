@@ -50,6 +50,10 @@ export interface Message {
     body?: string
     buttons?: { id?: string; title?: string }[]
     catalog_id?: string
+    product_retailer_id?: string
+    thumbnail_product_retailer_id?: string
+    header?: string
+    sections?: { title?: string; product_retailer_ids?: string[] }[]
     text?: string
     item_count?: number
     total?: number
@@ -144,6 +148,39 @@ export async function sendButtons(
     type: 'interactive',
     interactive: { type: 'button', body, buttons }
   })
+}
+
+// Shares the WhatsApp account's connected catalog, a single product, or a
+// multi-section product list in a free-form (session) message. Only usable
+// while the 24h service window is open — same restriction as the rest of the
+// composer, and enforced again server-side regardless.
+export type CatalogSendPayload =
+  | { mode: 'catalog'; body: string; thumbnailRetailerId?: string }
+  | { mode: 'product'; body: string; catalogId: string; productRetailerId: string }
+  | {
+      mode: 'product_list'
+      body: string
+      catalogId: string
+      headerText: string
+      sections: { title: string; productRetailerIds: string[] }[]
+    }
+
+export async function sendCatalogMessage(contactId: string, payload: CatalogSendPayload): Promise<void> {
+  const interactive: Record<string, unknown> = { type: payload.mode, body: payload.body }
+  if (payload.mode === 'catalog') {
+    if (payload.thumbnailRetailerId) interactive.thumbnail_retailer_id = payload.thumbnailRetailerId
+  } else if (payload.mode === 'product') {
+    interactive.catalog_id = payload.catalogId
+    interactive.product_retailer_id = payload.productRetailerId
+  } else {
+    interactive.catalog_id = payload.catalogId
+    interactive.header = payload.headerText
+    interactive.sections = payload.sections.map((s) => ({
+      title: s.title,
+      product_retailer_ids: s.productRetailerIds
+    }))
+  }
+  await api.post(`/contacts/${contactId}/messages`, { type: 'interactive', interactive })
 }
 
 export async function markRead(contactId: string): Promise<void> {
