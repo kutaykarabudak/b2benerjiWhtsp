@@ -81,6 +81,67 @@ const catalogPickerBody = ref('')
 const catalogPickerHeaderText = ref('')
 const loadingCatalogPicker = ref(false)
 const sendingCatalog = ref(false)
+
+// Resolves catalog/product interactive messages in the chat history to their
+// actual product (name/image/price) so the bubble shows what was sent
+// instead of just a generic "product sent" label.
+const productByRetailerId = ref<Map<string, Product>>(new Map())
+const catalogsByAccount = new Map<string, Catalog[]>()
+const productsLoadedForCatalogId = new Set<string>()
+
+function resolvedProduct(retailerId: string | undefined): Product | undefined {
+  if (!retailerId) return undefined
+  return productByRetailerId.value.get(retailerId)
+}
+
+function resolvedProductListNames(m: Message): string[] {
+  const sections = m.interactive_data?.sections || []
+  const names: string[] = []
+  for (const sec of sections) {
+    for (const id of sec.product_retailer_ids || []) {
+      const p = productByRetailerId.value.get(id)
+      names.push(p ? p.name : id)
+    }
+  }
+  return names
+}
+
+async function ensureCatalogProductsResolved() {
+  if (!selected.value) return
+  const account = selected.value.whatsapp_account || ''
+  const metaCatalogIds = new Set<string>()
+  for (const m of messages.value) {
+    const type = m.interactive_data?.type
+    if (type !== 'product' && type !== 'product_list') continue
+    const catalogId = m.interactive_data?.catalog_id
+    if (catalogId) metaCatalogIds.add(catalogId)
+  }
+  if (!metaCatalogIds.size) return
+
+  let catalogs = catalogsByAccount.get(account)
+  if (!catalogs) {
+    try {
+      catalogs = await listCatalogs(account)
+      catalogsByAccount.set(account, catalogs)
+    } catch {
+      catalogs = []
+    }
+  }
+
+  for (const metaCatalogId of metaCatalogIds) {
+    const catalog = catalogs.find((c) => c.meta_catalog_id === metaCatalogId)
+    if (!catalog || productsLoadedForCatalogId.has(catalog.id)) continue
+    productsLoadedForCatalogId.add(catalog.id)
+    try {
+      const products = await listProducts(catalog.id)
+      const next = new Map(productByRetailerId.value)
+      for (const p of products) next.set(p.retailer_id, p)
+      productByRetailerId.value = next
+    } catch {
+      // Leave the generic label as fallback if this fails.
+    }
+  }
+}
 const supportedDocumentTypes = new Set([
   'application/pdf',
   'text/plain',
@@ -543,6 +604,7 @@ async function loadMessages(scroll = true) {
   loadingMessages.value = true
   try {
     messages.value = await getMessages(selected.value.id)
+    ensureCatalogProductsResolved()
     if (scroll) scrollToBottom()
   } finally {
     loadingMessages.value = false
@@ -857,13 +919,29 @@ function messageMediaURL(message: Message) {
                   </div>
                   <p v-if="m.interactive_data?.text" class="order-note">{{ m.interactive_data.text }}</p>
                 </div>
+                <div v-else-if="m.interactive_data?.type === 'catalog'" class="catalog-msg-label">
+                  📦 Katalog mesajı gönderildi
+                </div>
                 <div
-                  v-else-if="['catalog', 'product', 'product_list'].includes(m.interactive_data?.type || '')"
-                  class="catalog-msg-label"
+                  v-else-if="m.interactive_data?.type === 'product' && resolvedProduct(m.interactive_data.product_retailer_id)"
+                  class="sent-product-card"
                 >
-                  <span v-if="m.interactive_data?.type === 'catalog'">📦 Katalog mesajı gönderildi</span>
-                  <span v-else-if="m.interactive_data?.type === 'product'">🛍️ Ürün gönderildi</span>
-                  <span v-else>🛍️ Ürün listesi gönderildi</span>
+                  <img
+                    v-if="resolvedProduct(m.interactive_data.product_retailer_id)!.image_url"
+                    :src="resolvedProduct(m.interactive_data.product_retailer_id)!.image_url"
+                    :alt="resolvedProduct(m.interactive_data.product_retailer_id)!.name"
+                  />
+                  <div v-else class="order-image-empty">▦</div>
+                  <div class="sent-product-copy">
+                    <b>{{ resolvedProduct(m.interactive_data.product_retailer_id)!.name }}</b>
+                    <small>{{ money(resolvedProduct(m.interactive_data.product_retailer_id)!.price / 100, resolvedProduct(m.interactive_data.product_retailer_id)!.currency) }}</small>
+                  </div>
+                </div>
+                <div v-else-if="m.interactive_data?.type === 'product'" class="catalog-msg-label">
+                  🛍️ Ürün gönderildi{{ m.interactive_data.product_retailer_id ? ' (SKU: ' + m.interactive_data.product_retailer_id + ')' : '' }}
+                </div>
+                <div v-else-if="m.interactive_data?.type === 'product_list'" class="catalog-msg-label">
+                  🛍️ Ürün listesi gönderildi<template v-if="resolvedProductListNames(m).length">: {{ resolvedProductListNames(m).join(', ') }}</template>
                 </div>
                 <a
                   v-else-if="m.message_type === 'location'"
@@ -1288,6 +1366,11 @@ function messageMediaURL(message: Message) {
 .contact-card-modal { display: flex; flex-direction: column; gap: 9px; width: min(440px, 100%); }
 .contact-card-modal header { margin-bottom: 3px; }
 .catalog-msg-label { padding: 4px 2px; font-weight: 600; }
+.sent-product-card { display: grid; grid-template-columns: 44px minmax(0,1fr); align-items: center; gap: 9px; width: min(280px, 60vw); }
+.sent-product-card img, .sent-product-card .order-image-empty { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: #edf4f1; }
+.sent-product-copy { display: flex; flex-direction: column; min-width: 0; }
+.sent-product-copy b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.sent-product-copy small { color: var(--muted); font-size: 11px; }
 .catalog-picker-modal { display: flex; flex-direction: column; gap: 9px; width: min(480px, 100%); }
 .catalog-picker-modal header { margin-bottom: 3px; }
 .catalog-picker-modes { display: flex; gap: 6px; }
