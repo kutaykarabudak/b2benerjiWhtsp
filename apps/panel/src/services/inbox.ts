@@ -61,6 +61,7 @@ export interface Message {
     items?: OrderItem[]
   } | null
   status: string
+  error_message?: string
   created_at: string
 }
 

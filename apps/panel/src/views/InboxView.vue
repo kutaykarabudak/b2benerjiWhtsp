@@ -364,6 +364,8 @@ const filteredCatalogProducts = computed(() => {
 
 const canSendCatalogSelection = computed(() => {
   if (sendingCatalog.value) return false
+  // Meta requires non-empty interactive.body.text for catalog/product/product_list.
+  if (!catalogPickerBody.value.trim()) return false
   if (catalogPickerMode.value === 'catalog') return true
   if (!selectedPickerCatalog.value) return false
   if (catalogPickerMode.value === 'product') return catalogPickerSelected.value.size === 1
@@ -402,8 +404,11 @@ async function openCatalogPicker() {
   catalogPickerProducts.value = []
   catalogPickerSelected.value = new Set()
   catalogPickerSearch.value = ''
-  catalogPickerBody.value = ''
-  catalogPickerHeaderText.value = ''
+  // Meta rejects catalog/product/product_list interactive sends with
+  // "The parameter interactive.body.text is required" if this is empty, so
+  // seed a sensible default instead of leaving it blank.
+  catalogPickerBody.value = 'Ürünlerimize göz atın:'
+  catalogPickerHeaderText.value = 'Ürünler'
   loadingCatalogPicker.value = true
   try {
     catalogPickerCatalogs.value = await listCatalogs(selected.value.whatsapp_account || '')
@@ -449,12 +454,18 @@ async function sendCatalogSelection() {
         productRetailerId: retailerId
       })
     } else {
+      // Sort alphabetically by product name — Set iteration order is click
+      // order, which would otherwise send products in a scrambled sequence.
+      const nameByRetailerId = new Map(catalogPickerProducts.value.map((p) => [p.retailer_id, p.name]))
+      const sortedRetailerIds = Array.from(catalogPickerSelected.value).sort((a, b) =>
+        (nameByRetailerId.get(a) || a).localeCompare(nameByRetailerId.get(b) || b, 'tr')
+      )
       await sendCatalogMessage(selected.value.id, {
         mode: 'product_list',
         body,
         catalogId: selectedPickerCatalog.value!.meta_catalog_id,
         headerText: catalogPickerHeaderText.value.trim() || 'Ürünler',
-        sections: [{ title: 'Ürünler', productRetailerIds: Array.from(catalogPickerSelected.value) }]
+        sections: [{ title: 'Ürünler', productRetailerIds: sortedRetailerIds }]
       })
     }
     closeCatalogPicker()
@@ -874,6 +885,9 @@ function messageMediaURL(message: Message) {
                 <div v-if="m.interactive_data?.buttons?.length" class="bubble-buttons">
                   <span v-for="(b, i) in m.interactive_data.buttons" :key="i" class="bubble-btn">{{ b.title }}</span>
                 </div>
+                <div v-if="m.direction === 'outgoing' && m.status === 'failed'" class="bubble-failed">
+                  ✕ Gönderilemedi{{ m.error_message ? ': ' + m.error_message : '' }}
+                </div>
                 <div class="bubble-meta">{{ fmtTime(m.created_at) }}</div>
               </div>
             </div>
@@ -1085,7 +1099,7 @@ function messageMediaURL(message: Message) {
           Bu hesapta senkronize katalog yok. Önce Katalog ekranından bir katalog senkronlayın.
         </div>
 
-        <textarea v-model="catalogPickerBody" rows="2" placeholder="Mesaj metni (opsiyonel)…"></textarea>
+        <textarea v-model="catalogPickerBody" rows="2" placeholder="Mesaj metni *"></textarea>
         <input v-if="catalogPickerMode === 'product_list'" v-model="catalogPickerHeaderText" placeholder="Başlık (ör. Ürünlerimiz)" />
 
         <template v-if="catalogPickerMode !== 'catalog' && catalogPickerCatalogs.length">
@@ -1197,6 +1211,7 @@ function messageMediaURL(message: Message) {
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .media-caption { margin-top: 5px; }
 .bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
+.bubble-failed { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(224,75,75,.2); color: var(--danger); font-size: 11px; font-weight: 600; }
 .bubble-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 6px; }
 .bubble-btn { text-align: center; font-size: 13px; color: #027eb5; padding: 5px; border-radius: 6px; background: rgba(0,0,0,0.03); }
 .order-card { width: min(390px, 68vw); }
