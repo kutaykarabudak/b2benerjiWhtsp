@@ -167,7 +167,12 @@ const isPausing = ref(false)
 
 const canStart = computed(() => {
   const s = campaign.value?.status
-  return (s === 'draft' || s === 'scheduled' || s === 'paused') && (campaign.value?.total_recipients || 0) > 0
+  if (!(s === 'draft' || s === 'scheduled' || s === 'paused')) return false
+  if ((campaign.value?.total_recipients || 0) <= 0) return false
+  // A media-header template needs its image/video/document uploaded for this
+  // campaign before it can be started, or every send is rejected by Meta.
+  if (templateNeedsMedia.value && !campaign.value?.header_media_id) return false
+  return true
 })
 const canPause = computed(() => {
   const s = campaign.value?.status
@@ -1073,6 +1078,9 @@ onUnmounted(() => {
         <!-- Media Upload Section -->
         <div v-if="templateNeedsMedia" class="space-y-1.5">
           <Label class="text-xs">{{ $t('campaigns.headerMedia', 'Header Media') }}</Label>
+          <p v-if="!campaign?.header_media_id && !mediaFile" class="text-xs text-destructive">
+            {{ $t('campaigns.headerMediaRequired', 'Required — this template will not send until media is uploaded.') }}
+          </p>
           <!-- Show existing media with preview -->
           <div v-if="campaign?.header_media_filename && !mediaFile" class="rounded-lg border overflow-hidden">
             <!-- Image preview -->

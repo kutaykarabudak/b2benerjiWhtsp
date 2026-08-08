@@ -10,6 +10,7 @@ export interface Template {
   display_name?: string
   language?: string
   status: string // APPROVED, PENDING, REJECTED
+  header_type?: string // '' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT'
 }
 
 export interface Campaign {
@@ -24,6 +25,8 @@ export interface Campaign {
   delivered_count: number
   read_count: number
   failed_count: number
+  header_media_id?: string
+  header_media_filename?: string
   created_at?: string
 }
 
@@ -58,6 +61,17 @@ export async function addRecipients(
   recipients: { phone_number: string; template_params?: Record<string, unknown> }[]
 ): Promise<void> {
   await api.post(`/campaigns/${campaignId}/recipients/import`, { recipients })
+}
+
+// Uploads the header image/video/document for a media-header template. Required
+// before a campaign using such a template can be started — the template's Meta
+// approval only carries an example asset, not a reusable send-time media ID.
+export async function uploadCampaignMedia(campaignId: string, file: File): Promise<void> {
+  const form = new FormData()
+  form.append('file', file)
+  await api.post(`/campaigns/${campaignId}/media`, form, {
+    headers: { 'Content-Type': undefined as unknown as string }
+  })
 }
 
 export async function startCampaign(id: string): Promise<void> {

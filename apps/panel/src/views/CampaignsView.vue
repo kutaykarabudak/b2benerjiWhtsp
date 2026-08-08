@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
   listCampaigns,
@@ -7,6 +7,7 @@ import {
   listAccounts,
   listApprovedTemplates,
   addRecipients,
+  uploadCampaignMedia,
   startCampaign,
   pauseCampaign,
   cancelCampaign,
@@ -16,6 +17,8 @@ import {
   type Template
 } from '@/services/campaigns'
 import { listContacts } from '@/services/contacts'
+
+const MEDIA_HEADER_TYPES = new Set(['IMAGE', 'VIDEO', 'DOCUMENT'])
 
 const campaigns = ref<Campaign[]>([])
 const accounts = ref<Account[]>([])
@@ -29,11 +32,64 @@ const showCreate = ref(false)
 const form = ref({ name: '', whatsapp_account: '', template_id: '' })
 const creating = ref(false)
 const createError = ref('')
+const createMediaFile = ref<File | null>(null)
+
+// A template with an IMAGE/VIDEO/DOCUMENT header needs its actual media
+// uploaded per-campaign — Meta's approval only stores an example asset, not a
+// reusable send-time media ID. Without it every send in the campaign is
+// rejected by Meta with the header component missing.
+function templateNeedsMedia(templateId: string): boolean {
+  const tmpl = templates.value.find((t) => t.id === templateId)
+  return !!tmpl?.header_type && MEDIA_HEADER_TYPES.has(tmpl.header_type.toUpperCase())
+}
+
+const createNeedsMedia = computed(() => templateNeedsMedia(form.value.template_id))
+
+function campaignNeedsMedia(c: Campaign): boolean {
+  return templateNeedsMedia(c.template_id) && !c.header_media_id
+}
+
+function onCreateMediaChange(e: Event) {
+  createMediaFile.value = (e.target as HTMLInputElement).files?.[0] || null
+}
 
 // Recipients editor (per campaign, inline)
 const recipientsFor = ref<string | null>(null)
 const recipientText = ref('')
 const savingRecipients = ref(false)
+
+// Media uploader (per campaign, inline) — for media-header templates whose
+// campaign wasn't given its media at creation time (or the upload failed).
+const mediaUploadFor = ref<string | null>(null)
+const mediaUploadFile = ref<File | null>(null)
+const uploadingMedia = ref(false)
+const mediaUploadError = ref('')
+
+function openMediaUpload(c: Campaign) {
+  mediaUploadFor.value = mediaUploadFor.value === c.id ? null : c.id
+  mediaUploadFile.value = null
+  mediaUploadError.value = ''
+}
+
+function onMediaUploadChange(e: Event) {
+  mediaUploadFile.value = (e.target as HTMLInputElement).files?.[0] || null
+}
+
+async function submitMediaUpload(c: Campaign) {
+  if (!mediaUploadFile.value) return
+  uploadingMedia.value = true
+  mediaUploadError.value = ''
+  try {
+    await uploadCampaignMedia(c.id, mediaUploadFile.value)
+    mediaUploadFor.value = null
+    mediaUploadFile.value = null
+    await loadAll()
+  } catch (e: any) {
+    mediaUploadError.value = e?.response?.data?.message || 'Medya yüklenemedi.'
+  } finally {
+    uploadingMedia.value = false
+  }
+}
 
 async function loadAll() {
   loading.value = true
@@ -54,14 +110,28 @@ async function submitCreate() {
     createError.value = 'İsim, hesap ve şablon zorunlu.'
     return
   }
+  if (createNeedsMedia.value && !createMediaFile.value) {
+    createError.value = 'Bu şablonun görsel/video/doküman başlığı var — göndermeden önce medya dosyası seçin.'
+    return
+  }
   creating.value = true
   try {
-    await createCampaign({
+    const created = await createCampaign({
       name: form.value.name.trim(),
       whatsapp_account: form.value.whatsapp_account,
       template_id: form.value.template_id
     })
+    if (createNeedsMedia.value && createMediaFile.value) {
+      try {
+        await uploadCampaignMedia(created.id, createMediaFile.value)
+      } catch (e: any) {
+        // Campaign exists as a draft; surface the failure but don't lose it —
+        // the inline uploader on the campaign row lets them retry.
+        createError.value = e?.response?.data?.message || 'Kampanya oluşturuldu ama medya yüklenemedi. Kampanya kartından tekrar deneyin.'
+      }
+    }
     form.value = { name: '', whatsapp_account: form.value.whatsapp_account, template_id: '' }
+    createMediaFile.value = null
     showCreate.value = false
     await loadAll()
   } catch (e: any) {
@@ -231,6 +301,15 @@ onMounted(loadAll)
       <p v-if="!templates.length" class="muted small">
         Onaylı şablon yok. Kampanya için Meta tarafından onaylanmış bir şablon gerekir.
       </p>
+      <div v-if="createNeedsMedia" class="field media-field">
+        <label>Şablon görseli/videosu/dokümanı *</label>
+        <p class="muted small">
+          Şablonun onayı sırasında eklenen görsel sadece örnektir; Meta her gönderim için medyanın
+          tekrar yüklenmesini ister. Bu dosya seçilmeden kampanya başlatılamaz.
+        </p>
+        <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" @change="onCreateMediaChange" />
+        <span v-if="createMediaFile" class="muted small">Seçildi: {{ createMediaFile.name }}</span>
+      </div>
       <p v-if="createError" class="error">{{ createError }}</p>
       <div class="form-actions">
         <button type="button" @click="showCreate = false">İptal</button>
@@ -259,10 +338,17 @@ onMounted(loadAll)
         <span class="fail">Başarısız: <b>{{ c.failed_count }}</b></span>
       </div>
 
+      <p v-if="(c.status === 'draft' || c.status === 'paused') && campaignNeedsMedia(c)" class="error small">
+        Bu şablon görsel/video/doküman başlığı gerektiriyor — başlatmadan önce medya yükleyin.
+      </p>
+
       <div class="campaign-actions">
         <button v-if="c.status === 'draft'" @click="openRecipients(c)">Alıcı Ekle</button>
+        <button v-if="(c.status === 'draft' || c.status === 'paused') && campaignNeedsMedia(c)" @click="openMediaUpload(c)">
+          Medya Yükle
+        </button>
         <button
-          v-if="c.status === 'draft' || c.status === 'paused'"
+          v-if="(c.status === 'draft' || c.status === 'paused') && !campaignNeedsMedia(c)"
           class="primary"
           :disabled="!c.total_recipients"
           @click="act(startCampaign, c)"
@@ -313,6 +399,23 @@ onMounted(loadAll)
         <div class="form-actions">
           <button type="button" @click="recipientsFor = null">Kapat</button>
           <button class="primary" :disabled="savingRecipients" @click="saveRecipients(c)">Ekle</button>
+        </div>
+      </div>
+
+      <!-- Inline media uploader (media-header templates only) -->
+      <div v-if="mediaUploadFor === c.id" class="recipients">
+        <label class="muted small">
+          Şablonun görseli/videosu/dokümanı — Meta her gönderim için bunu ayrıca ister, onay
+          sırasındaki örnek görsel otomatik kullanılmaz.
+        </label>
+        <input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" @change="onMediaUploadChange" />
+        <span v-if="mediaUploadFile" class="muted small">Seçildi: {{ mediaUploadFile.name }}</span>
+        <p v-if="mediaUploadError" class="error small">{{ mediaUploadError }}</p>
+        <div class="form-actions">
+          <button type="button" @click="openMediaUpload(c)">Kapat</button>
+          <button class="primary" :disabled="uploadingMedia || !mediaUploadFile" @click="submitMediaUpload(c)">
+            {{ uploadingMedia ? 'Yükleniyor…' : 'Yükle' }}
+          </button>
         </div>
       </div>
     </div>

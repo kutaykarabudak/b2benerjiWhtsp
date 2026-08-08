@@ -571,6 +571,54 @@ func TestApp_StartCampaign_CanResumePaused(t *testing.T) {
 	assert.Len(t, mockQueue.Jobs, 1)
 }
 
+func TestApp_StartCampaign_MediaHeaderTemplateWithoutMedia(t *testing.T) {
+	mockQueue := testutil.NewMockQueue()
+	app := newTestApp(t, withQueue(mockQueue))
+	org := testutil.CreateTestOrganization(t, app.DB)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithEmail(testutil.UniqueEmail("start-media-missing")), testutil.WithPassword("password"))
+	account := testutil.CreateTestWhatsAppAccountWith(t, app.DB, org.ID, testutil.WithAccountName("start-media-missing-account"))
+	template := testutil.CreateTestTemplate(t, app.DB, org.ID, account.Name)
+	require.NoError(t, app.DB.Model(template).Update("header_type", "IMAGE").Error)
+	campaign := createTestCampaign(t, app, org.ID, template.ID, user.ID, account.Name, models.CampaignStatusDraft)
+	createTestRecipient(t, app, campaign.ID, "+1234567890", models.MessageStatusPending)
+
+	req := testutil.NewJSONRequest(t, nil)
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	testutil.SetPathParam(req, "id", campaign.ID.String())
+
+	err := app.StartCampaign(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusBadRequest, testutil.GetResponseStatusCode(req))
+	assert.Empty(t, mockQueue.Jobs)
+
+	// Campaign must stay in draft, not silently flip to processing.
+	var updated models.BulkMessageCampaign
+	app.DB.Where("id = ?", campaign.ID).First(&updated)
+	assert.Equal(t, models.CampaignStatusDraft, updated.Status)
+}
+
+func TestApp_StartCampaign_MediaHeaderTemplateWithMedia(t *testing.T) {
+	mockQueue := testutil.NewMockQueue()
+	app := newTestApp(t, withQueue(mockQueue))
+	org := testutil.CreateTestOrganization(t, app.DB)
+	user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithEmail(testutil.UniqueEmail("start-media-present")), testutil.WithPassword("password"))
+	account := testutil.CreateTestWhatsAppAccountWith(t, app.DB, org.ID, testutil.WithAccountName("start-media-present-account"))
+	template := testutil.CreateTestTemplate(t, app.DB, org.ID, account.Name)
+	require.NoError(t, app.DB.Model(template).Update("header_type", "IMAGE").Error)
+	campaign := createTestCampaign(t, app, org.ID, template.ID, user.ID, account.Name, models.CampaignStatusDraft)
+	require.NoError(t, app.DB.Model(campaign).Update("header_media_id", "wamid.test-media-handle").Error)
+	createTestRecipient(t, app, campaign.ID, "+1234567890", models.MessageStatusPending)
+
+	req := testutil.NewJSONRequest(t, nil)
+	testutil.SetAuthContext(req, org.ID, user.ID)
+	testutil.SetPathParam(req, "id", campaign.ID.String())
+
+	err := app.StartCampaign(req)
+	require.NoError(t, err)
+	assert.Equal(t, fasthttp.StatusOK, testutil.GetResponseStatusCode(req))
+	assert.Len(t, mockQueue.Jobs, 1)
+}
+
 // --- PauseCampaign Tests ---
 
 func TestApp_PauseCampaign_Success(t *testing.T) {

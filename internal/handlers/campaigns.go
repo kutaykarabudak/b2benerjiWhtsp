@@ -440,6 +440,17 @@ func (a *App) StartCampaign(r *fastglue.Request) error {
 		if err := a.DB.Where("id = ? AND organization_id = ?", campaign.TemplateID, orgID).First(&template).Error; err != nil {
 			return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Campaign template no longer exists", nil, "")
 		}
+
+		// A media-header template (IMAGE/VIDEO/DOCUMENT) requires header media to
+		// have been uploaded for this campaign draft. Without it, BuildTemplateComponents
+		// silently omits the header component and every send is rejected by Meta because
+		// the request no longer matches the approved template structure.
+		switch strings.ToUpper(template.HeaderType) {
+		case "IMAGE", "VIDEO", "DOCUMENT":
+			if campaign.HeaderMediaID == "" {
+				return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Bu şablon görsel/video/doküman başlığı gerektiriyor — kampanyayı başlatmadan önce medya yükleyin", nil, "")
+			}
+		}
 	}
 
 	// Update status to processing
