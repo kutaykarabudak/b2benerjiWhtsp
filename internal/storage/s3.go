@@ -38,6 +38,13 @@ func NewS3Client(cfg *config.StorageConfig) (*S3Client, error) {
 	if cfg.S3Endpoint != "" {
 		opts.BaseEndpoint = aws.String(cfg.S3Endpoint)
 		opts.UsePathStyle = true
+
+		// Since v1.73.0 the SDK adds CRC32 integrity headers to every eligible
+		// request/response by default. GCS's XML API doesn't recognize them,
+		// which breaks SigV4 verification with "SignatureDoesNotMatch" — only
+		// compute/validate checksums when a caller explicitly asks for one.
+		opts.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		opts.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	}
 
 	client := s3.New(opts)
