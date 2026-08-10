@@ -897,6 +897,30 @@ function messageMediaURL(message: Message) {
                   rel="noopener"
                   class="bubble-document"
                 >📄 {{ m.media_filename || 'Belgeyi aç' }}</a>
+                <!-- Template messages with an IMAGE/VIDEO/DOCUMENT header store the
+                     same media_url as a plain media message, but message_type stays
+                     'template' — so it needs its own branch, keyed off the MIME type
+                     since there's no dedicated message_type to switch on. -->
+                <img
+                  v-else-if="m.media_url && m.message_type === 'template' && (m.media_mime_type || '').startsWith('image/')"
+                  :src="messageMediaURL(m)"
+                  :alt="messageBody(m) || 'Şablon görseli'"
+                  class="bubble-img"
+                />
+                <video
+                  v-else-if="m.media_url && m.message_type === 'template' && (m.media_mime_type || '').startsWith('video/')"
+                  :src="messageMediaURL(m)"
+                  class="bubble-video"
+                  controls
+                  preload="metadata"
+                />
+                <a
+                  v-else-if="m.media_url && m.message_type === 'template'"
+                  :href="messageMediaURL(m)"
+                  target="_blank"
+                  rel="noopener"
+                  class="bubble-document"
+                >📄 {{ m.media_filename || 'Şablon dokümanını aç' }}</a>
                 <div v-else-if="m.message_type === 'order'" class="order-card">
                   <div class="order-head">
                     <span class="order-icon">🛍️</span>
@@ -957,7 +981,7 @@ function messageMediaURL(message: Message) {
                   {{ messageBody(m) || m.interactive_data?.body || (m.message_type === 'image' ? '' : '[' + m.message_type + ']') }}
                 </div>
                 <div
-                  v-if="['image', 'video', 'document'].includes(m.message_type) && messageBody(m)"
+                  v-if="(['image', 'video', 'document'].includes(m.message_type) || (m.message_type === 'template' && m.media_url)) && messageBody(m)"
                   class="bubble-text media-caption"
                 >{{ messageBody(m) }}</div>
                 <div v-if="m.interactive_data?.buttons?.length" class="bubble-buttons">
