@@ -88,16 +88,24 @@ func (s *S3Client) GetPresignedURL(ctx context.Context, key string, expiry time.
 // never becomes part of the canonical request the server verifies against.
 func dropHeaderFromSigning(header string) func(*middleware.Stack) error {
 	return func(stack *middleware.Stack) error {
-		return stack.Finalize.Insert(
-			middleware.FinalizeMiddlewareFunc("DropHeaderFromSigning", func(
-				ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler,
-			) (middleware.FinalizeOutput, middleware.Metadata, error) {
-				if req, ok := in.Request.(*smithyhttp.Request); ok {
-					req.Header.Del(header)
-				}
-				return next.HandleFinalize(ctx, in)
-			}),
-			"Signing", middleware.Before,
-		)
+		mw := middleware.FinalizeMiddlewareFunc("DropHeaderFromSigning", func(
+			ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler,
+		) (middleware.FinalizeOutput, middleware.Metadata, error) {
+			if req, ok := in.Request.(*smithyhttp.Request); ok {
+				req.Header.Del(header)
+			}
+			return next.HandleFinalize(ctx, in)
+		})
+
+		// Regular operations sign via a step named "Signing"; presign
+		// operations (used for GetPresignedURL) build the request through
+		// "PresignHTTPRequest" instead — there's no single anchor common to
+		// both, so insert relative to whichever one this operation has.
+		for _, anchor := range []string{"Signing", "PresignHTTPRequest"} {
+			if _, ok := stack.Finalize.Get(anchor); ok {
+				return stack.Finalize.Insert(mw, anchor, middleware.Before)
+			}
+		}
+		return nil
 	}
 }
