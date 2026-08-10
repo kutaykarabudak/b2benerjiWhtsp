@@ -4,13 +4,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/aws/smithy-go/logging"
 	"github.com/shridarpatil/whatomate/internal/config"
 )
 
@@ -48,11 +50,28 @@ func NewS3Client(cfg *config.StorageConfig) (*S3Client, error) {
 		opts.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		opts.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 
-		// Go's HTTP transport also adds its own Accept-Encoding header, which
-		// the SDK includes in the SigV4 canonical request — but GCS strips or
-		// alters that header before verifying, so the signature never matches.
-		// See https://github.com/aws/aws-sdk-go-v2/issues/1816.
-		opts.APIOptions = append(opts.APIOptions, dropHeaderFromSigning("Accept-Encoding"))
+		// The SDK unconditionally adds "Accept-Encoding: identity" (and signs
+		// it) before handing the request to the configured signer. GCS's XML
+		// API alters that header in transit before verifying, so the
+		// signature never matches. Wrapping the signer — rather than trying
+		// to anchor a Finalize middleware on a step name that differs between
+		// regular and presign operations — strips it right at the one place
+		// both code paths actually go through. See
+		// https://github.com/aws/aws-sdk-go-v2/issues/1816.
+		opts.HTTPSignerV4 = &headerStrippingSigner{
+			wrapped: v4.NewSigner(),
+			headers: []string{"Accept-Encoding"},
+		}
+
+		// TEMPORARY: this has failed with SignatureDoesNotMatch in production
+		// while passing locally against the same bucket/credentials. Log the
+		// exact canonical request/headers Cloud Run actually sends so the next
+		// real failure is diagnosable instead of guessed at again. Remove once
+		// root-caused.
+		if os.Getenv("WHATOMATE_DEBUG_S3_SIGNING") != "" {
+			opts.ClientLogMode = aws.LogSigning | aws.LogRequest
+			opts.Logger = logging.NewStandardLogger(os.Stdout)
+		}
 	}
 
 	client := s3.New(opts)
@@ -83,29 +102,21 @@ func (s *S3Client) GetPresignedURL(ctx context.Context, key string, expiry time.
 	return req.URL, nil
 }
 
-// dropHeaderFromSigning removes the given header immediately before SigV4
-// signing so its value (which some S3-compatible providers alter in transit)
-// never becomes part of the canonical request the server verifies against.
-func dropHeaderFromSigning(header string) func(*middleware.Stack) error {
-	return func(stack *middleware.Stack) error {
-		mw := middleware.FinalizeMiddlewareFunc("DropHeaderFromSigning", func(
-			ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler,
-		) (middleware.FinalizeOutput, middleware.Metadata, error) {
-			if req, ok := in.Request.(*smithyhttp.Request); ok {
-				req.Header.Del(header)
-			}
-			return next.HandleFinalize(ctx, in)
-		})
+// headerStrippingSigner deletes the given headers from the request
+// immediately before delegating to the real SigV4 signer, so their values
+// (which some S3-compatible providers alter in transit) never become part of
+// the canonical request the server verifies against.
+type headerStrippingSigner struct {
+	wrapped s3.HTTPSignerV4
+	headers []string
+}
 
-		// Regular operations sign via a step named "Signing"; presign
-		// operations (used for GetPresignedURL) build the request through
-		// "PresignHTTPRequest" instead — there's no single anchor common to
-		// both, so insert relative to whichever one this operation has.
-		for _, anchor := range []string{"Signing", "PresignHTTPRequest"} {
-			if _, ok := stack.Finalize.Get(anchor); ok {
-				return stack.Finalize.Insert(mw, anchor, middleware.Before)
-			}
-		}
-		return nil
+func (s *headerStrippingSigner) SignHTTP(
+	ctx context.Context, credentials aws.Credentials, r *http.Request, payloadHash, service, region string,
+	signingTime time.Time, optFns ...func(*v4.SignerOptions),
+) error {
+	for _, h := range s.headers {
+		r.Header.Del(h)
 	}
+	return s.wrapped.SignHTTP(ctx, credentials, r, payloadHash, service, region, signingTime, optFns...)
 }
