@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/shridarpatil/whatomate/internal/config"
 )
 
@@ -45,6 +47,12 @@ func NewS3Client(cfg *config.StorageConfig) (*S3Client, error) {
 		// compute/validate checksums when a caller explicitly asks for one.
 		opts.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		opts.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+
+		// Go's HTTP transport also adds its own Accept-Encoding header, which
+		// the SDK includes in the SigV4 canonical request — but GCS strips or
+		// alters that header before verifying, so the signature never matches.
+		// See https://github.com/aws/aws-sdk-go-v2/issues/1816.
+		opts.APIOptions = append(opts.APIOptions, dropHeaderFromSigning("Accept-Encoding"))
 	}
 
 	client := s3.New(opts)
@@ -73,4 +81,23 @@ func (s *S3Client) GetPresignedURL(ctx context.Context, key string, expiry time.
 		return "", err
 	}
 	return req.URL, nil
+}
+
+// dropHeaderFromSigning removes the given header immediately before SigV4
+// signing so its value (which some S3-compatible providers alter in transit)
+// never becomes part of the canonical request the server verifies against.
+func dropHeaderFromSigning(header string) func(*middleware.Stack) error {
+	return func(stack *middleware.Stack) error {
+		return stack.Finalize.Insert(
+			middleware.FinalizeMiddlewareFunc("DropHeaderFromSigning", func(
+				ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler,
+			) (middleware.FinalizeOutput, middleware.Metadata, error) {
+				if req, ok := in.Request.(*smithyhttp.Request); ok {
+					req.Header.Del(header)
+				}
+				return next.HandleFinalize(ctx, in)
+			}),
+			"Signing", middleware.Before,
+		)
+	}
 }
