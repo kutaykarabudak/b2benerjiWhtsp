@@ -65,6 +65,17 @@ if [[ -n "${META_CONFIG_ID:-}" ]]; then
   ENV_VARS+="~WHATOMATE_WHATSAPP__CONFIG_ID=${META_CONFIG_ID}"
 fi
 
+# Media storage (chat/campaign images, videos, documents). Local disk does not
+# survive a Cloud Run redeploy, instance restart, or a request landing on a
+# different instance, so production must use S3-compatible storage (GCS's XML
+# interoperability API works via MEDIA_S3_ENDPOINT + HMAC key/secret).
+if [[ -n "${MEDIA_S3_BUCKET:-}" ]]; then
+  ENV_VARS+="~WHATOMATE_STORAGE__TYPE=s3~WHATOMATE_STORAGE__S3_BUCKET=${MEDIA_S3_BUCKET}~WHATOMATE_STORAGE__S3_REGION=${MEDIA_S3_REGION:-${REGION}}"
+  if [[ -n "${MEDIA_S3_ENDPOINT:-}" ]]; then
+    ENV_VARS+="~WHATOMATE_STORAGE__S3_ENDPOINT=${MEDIA_S3_ENDPOINT}"
+  fi
+fi
+
 # Longer-lived sessions (the panel also auto-refreshes on expiry) so users
 # aren't bounced to login mid-work.
 ENV_VARS+="~WHATOMATE_JWT__ACCESS_EXPIRY_MINS=480~WHATOMATE_JWT__REFRESH_EXPIRY_DAYS=30"
@@ -82,6 +93,9 @@ if gcloud secrets describe whatomate-redis-password >/dev/null 2>&1; then
 fi
 if gcloud secrets describe whatomate-meta-app-secret >/dev/null 2>&1; then
   SECRETS+=",WHATOMATE_WHATSAPP__APP_SECRET=whatomate-meta-app-secret:latest"
+fi
+if gcloud secrets describe whatomate-media-s3-key >/dev/null 2>&1 && gcloud secrets describe whatomate-media-s3-secret >/dev/null 2>&1; then
+  SECRETS+=",WHATOMATE_STORAGE__S3_KEY=whatomate-media-s3-key:latest,WHATOMATE_STORAGE__S3_SECRET=whatomate-media-s3-secret:latest"
 fi
 
 NETWORK_FLAGS=()

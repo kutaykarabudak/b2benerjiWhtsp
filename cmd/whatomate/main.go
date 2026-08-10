@@ -215,15 +215,15 @@ func runServer(args []string) {
 		HTTPClient: httpClient,
 	}
 
-	// Initialize S3 client for call recordings (optional)
+	// Initialize S3 client for call recordings and/or general media storage (optional)
 	var s3Client *storage.S3Client
-	if cfg.Calling.RecordingEnabled && cfg.Storage.S3Bucket != "" {
+	if cfg.Storage.S3Bucket != "" && (cfg.Storage.Type == "s3" || cfg.Calling.RecordingEnabled) {
 		var err error
 		s3Client, err = storage.NewS3Client(&cfg.Storage)
 		if err != nil {
-			lo.Warn("Failed to initialize S3 client for recordings, recording disabled", "error", err)
+			lo.Warn("Failed to initialize S3 client, falling back to local storage/recording disabled", "error", err)
 		} else {
-			lo.Info("S3 client initialized for call recordings", "bucket", cfg.Storage.S3Bucket)
+			lo.Info("S3 client initialized", "bucket", cfg.Storage.S3Bucket)
 		}
 	}
 

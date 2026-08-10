@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -917,8 +917,8 @@ func (a *App) UploadCampaignMedia(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to upload media to WhatsApp", nil, "")
 	}
 
-	// Save file locally for preview
-	localPath, err := a.saveCampaignMedia(campaignUUID.String(), data, mimeType)
+	// Save file for preview
+	localPath, err := a.saveCampaignMedia(ctx, campaignUUID.String(), data, mimeType)
 	if err != nil {
 		a.Log.Error("Failed to save media locally", "error", err)
 		// Don't fail the request, just log the error - preview won't work
@@ -947,32 +947,18 @@ func (a *App) UploadCampaignMedia(r *fastglue.Request) error {
 	})
 }
 
-// saveCampaignMedia saves uploaded media locally for preview
-func (a *App) saveCampaignMedia(campaignID string, data []byte, mimeType string) (string, error) {
-	// Determine file extension
+// saveCampaignMedia saves uploaded media for preview
+func (a *App) saveCampaignMedia(ctx context.Context, campaignID string, data []byte, mimeType string) (string, error) {
 	ext := getExtensionFromMimeType(mimeType)
 	if ext == "" {
 		ext = ".bin"
 	}
 
-	// Create campaigns media directory
-	subdir := "campaigns"
-	if err := a.ensureMediaDir(subdir); err != nil {
-		return "", fmt.Errorf("failed to create media directory: %w", err)
+	relativePath, err := a.saveMedia(ctx, data, mimeType, "campaigns", campaignID+ext)
+	if err != nil {
+		return "", err
 	}
-
-	// Generate filename using campaign ID
-	filename := campaignID + ext
-	filePath := filepath.Join(a.getMediaStoragePath(), subdir, filename)
-
-	// Save file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to save media file: %w", err)
-	}
-
-	// Return relative path for storage
-	relativePath := filepath.Join(subdir, filename)
-	a.Log.Info("Campaign media saved locally", "path", relativePath, "size", len(data))
+	a.Log.Info("Campaign media saved", "path", relativePath, "size", len(data))
 
 	return relativePath, nil
 }
@@ -1002,46 +988,7 @@ func (a *App) ServeCampaignMedia(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "No media found", nil, "")
 	}
 
-	// Security: prevent directory traversal and symlink attacks
-	filePath := filepath.Clean(campaign.HeaderMediaLocalPath)
-	baseDir, err := filepath.Abs(a.getMediaStoragePath())
-	if err != nil {
-		a.Log.Error("Storage configuration error", "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Storage configuration error", nil, "")
-	}
-	fullPath, err := filepath.Abs(filepath.Join(baseDir, filePath))
-	if err != nil || !strings.HasPrefix(fullPath, baseDir+string(os.PathSeparator)) {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
-	}
-
-	// Reject symlinks
-	info, err := os.Lstat(fullPath)
-	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "File not found", nil, "")
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
-	}
-
-	// Read file
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		a.Log.Error("Failed to read media file", "path", fullPath, "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to read file", nil, "")
-	}
-
-	// Use stored mime type or determine from extension
-	contentType := campaign.HeaderMediaMimeType
-	if contentType == "" {
-		ext := strings.ToLower(filepath.Ext(filePath))
-		contentType = getMimeTypeFromExtension(ext)
-	}
-
-	r.RequestCtx.Response.Header.Set("Content-Type", contentType)
-	r.RequestCtx.Response.Header.Set("Cache-Control", "private, max-age=3600")
-	r.RequestCtx.SetBody(data)
-
-	return nil
+	return a.writeMediaResponse(r, campaign.HeaderMediaLocalPath)
 }
 
 // getMimeTypeFromExtension returns MIME type from file extension

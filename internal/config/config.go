@@ -166,6 +166,9 @@ type StorageConfig struct {
 	S3Region  string `koanf:"s3_region"`
 	S3Key     string `koanf:"s3_key"`
 	S3Secret  string `koanf:"s3_secret"`
+	// S3Endpoint overrides the default AWS endpoint for S3-compatible providers
+	// (e.g. Google Cloud Storage's XML interoperability API). Empty uses AWS.
+	S3Endpoint string `koanf:"s3_endpoint"`
 }
 
 type DefaultAdminConfig struct {

@@ -437,8 +437,8 @@ func (a *App) buildInteractiveData(req OutgoingMessageRequest) models.JSONB {
 		sections := make([]any, len(req.ProductSections))
 		for i, sec := range req.ProductSections {
 			sections[i] = map[string]any{
-				"title":                 sec.Title,
-				"product_retailer_ids":  sec.ProductRetailerIDs,
+				"title":                sec.Title,
+				"product_retailer_ids": sec.ProductRetailerIDs,
 			}
 		}
 		return models.JSONB{
@@ -960,10 +960,10 @@ func (a *App) SendTemplateMessage(r *fastglue.Request) error {
 		}
 	}
 
-	// Save header media locally so it can be served for chat preview
+	// Save header media so it can be served for chat preview
 	var headerLocalPath string
 	if len(headerMediaData) > 0 {
-		localPath, err := a.saveMediaLocally(headerMediaData, headerMimeType, "header")
+		localPath, err := a.saveMediaLocally(r.RequestCtx, headerMediaData, headerMimeType, "header")
 		if err != nil {
 			a.Log.Error("Failed to save template header media locally", "error", err)
 			// Non-fatal — message will still send, just won't show preview

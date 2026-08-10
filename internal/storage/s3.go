@@ -32,6 +32,14 @@ func NewS3Client(cfg *config.StorageConfig) (*S3Client, error) {
 		opts.Credentials = credentials.NewStaticCredentialsProvider(cfg.S3Key, cfg.S3Secret, "")
 	}
 
+	// A custom endpoint means we're talking to an S3-compatible provider other
+	// than AWS (e.g. Google Cloud Storage's XML interoperability API), which
+	// requires path-style addressing instead of AWS's virtual-hosted style.
+	if cfg.S3Endpoint != "" {
+		opts.BaseEndpoint = aws.String(cfg.S3Endpoint)
+		opts.UsePathStyle = true
+	}
+
 	client := s3.New(opts)
 	return &S3Client{client: client, bucket: cfg.S3Bucket}, nil
 }

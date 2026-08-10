@@ -38,6 +38,7 @@ GCP:
 - VPC: `whatomate-vpc`
 - Subnet: `whatomate-europe-west1`
 - Runtime service account: `whatomate-runtime@b2benerji-whatsapp-2026.iam.gserviceaccount.com`
+- Medya bucket (GCS, S3-uyumlu XML interop ile): `b2benerji-whatsapp-2026-media` (europe-west1). Sohbet/kampanya medyası buraya yazılır — yerel disk Cloud Run'da redeploy/restart/instance değişiminde sıfırlanır, bu yüzden `storage.type=s3` zorunlu (2026-08-10'da eklendi, bkz. `internal/handlers/media.go`).
 
 Secret Manager içindeki secret adları:
 
@@ -46,6 +47,7 @@ Secret Manager içindeki secret adları:
 - `whatomate-encryption-key`
 - `whatomate-jwt-secret`
 - `whatomate-redis-password`
+- `whatomate-media-s3-key` / `whatomate-media-s3-secret` — medya bucket'ının HMAC anahtarı (runtime servis hesabına ait)
 
 Admin:
 

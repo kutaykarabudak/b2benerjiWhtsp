@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -1024,7 +1022,7 @@ func (a *App) SendMediaMessage(r *fastglue.Request) error {
 	}
 
 	// Save file locally first
-	localPath, err := a.saveMediaLocally(fileData, mimeType, fileHeader.Filename)
+	localPath, err := a.saveMediaLocally(r.RequestCtx, fileData, mimeType, fileHeader.Filename)
 	if err != nil {
 		a.Log.Error("Failed to save media locally", "error", err)
 		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to save media", nil, "")
@@ -1078,7 +1076,7 @@ func (a *App) SendMediaMessage(r *fastglue.Request) error {
 }
 
 // saveMediaLocally saves media data to local storage and returns the relative path
-func (a *App) saveMediaLocally(data []byte, mimeType, filename string) (string, error) {
+func (a *App) saveMediaLocally(ctx context.Context, data []byte, mimeType, filename string) (string, error) {
 	// Determine subdirectory based on MIME type
 	var subdir string
 	switch {
@@ -1092,11 +1090,6 @@ func (a *App) saveMediaLocally(data []byte, mimeType, filename string) (string, 
 		subdir = "documents"
 	}
 
-	// Ensure directory exists
-	if err := a.ensureMediaDir(subdir); err != nil {
-		return "", fmt.Errorf("failed to create media directory: %w", err)
-	}
-
 	// Get extension from MIME type or filename
 	ext := getExtensionFromMimeType(mimeType)
 	if ext == "" {
@@ -1108,17 +1101,11 @@ func (a *App) saveMediaLocally(data []byte, mimeType, filename string) (string, 
 		}
 	}
 
-	// Generate unique filename
 	newFilename := uuid.New().String() + ext
-	filePath := filepath.Join(a.getMediaStoragePath(), subdir, newFilename)
-
-	// Save file
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to save media file: %w", err)
+	relativePath, err := a.saveMedia(ctx, data, mimeType, subdir, newFilename)
+	if err != nil {
+		return "", err
 	}
-
-	// Return relative path
-	relativePath := filepath.Join(subdir, newFilename)
 	a.Log.Info("Media saved locally", "path", relativePath, "size", len(data))
 
 	return relativePath, nil

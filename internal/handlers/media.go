@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/shridarpatil/whatomate/internal/models"
@@ -13,6 +15,130 @@ import (
 	"github.com/valyala/fasthttp"
 	"github.com/zerodha/fastglue"
 )
+
+// mediaPresignExpiry is how long a redirected media URL stays valid. Chat
+// clients fetch it once per render, so this only needs to outlive a page view.
+const mediaPresignExpiry = 15 * time.Minute
+
+// usesS3Media reports whether media should be stored/served via the S3-compatible
+// backend rather than local disk. Local disk does not survive a Cloud Run
+// redeploy, instance restart, or a request landing on a different instance —
+// so this must be true in any multi-instance or ephemeral-filesystem deployment.
+func (a *App) usesS3Media() bool {
+	return a.Config.Storage.Type == "s3" && a.S3Client != nil
+}
+
+// saveMedia stores data under subdir/filename using the configured storage
+// backend and returns a relative reference (S3 key or local relative path,
+// same shape either way) to persist as the message/campaign's media_url.
+func (a *App) saveMedia(ctx context.Context, data []byte, mimeType, subdir, filename string) (string, error) {
+	key := subdir + "/" + filename
+
+	if a.usesS3Media() {
+		if err := a.S3Client.Upload(ctx, key, bytes.NewReader(data), mimeType); err != nil {
+			return "", fmt.Errorf("failed to upload media to storage: %w", err)
+		}
+		return key, nil
+	}
+
+	if err := a.ensureMediaDir(subdir); err != nil {
+		return "", fmt.Errorf("failed to create media directory: %w", err)
+	}
+	filePath := filepath.Join(a.getMediaStoragePath(), subdir, filename)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to save media file: %w", err)
+	}
+	return key, nil
+}
+
+// writeMediaResponse serves a previously-saved media reference: a redirect to
+// a presigned URL when stored in S3, or the file straight off local disk.
+func (a *App) writeMediaResponse(r *fastglue.Request, storedRef string) error {
+	if a.usesS3Media() {
+		url, err := a.S3Client.GetPresignedURL(r.RequestCtx, storedRef, mediaPresignExpiry)
+		if err != nil {
+			a.Log.Error("Failed to presign media URL", "key", storedRef, "error", err)
+			return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to load media", nil, "")
+		}
+		r.RequestCtx.Redirect(url, fasthttp.StatusFound)
+		return nil
+	}
+
+	// Security: prevent directory traversal and symlink attacks
+	filePath := filepath.Clean(storedRef)
+	baseDir, err := filepath.Abs(a.getMediaStoragePath())
+	if err != nil {
+		a.Log.Error("Storage configuration error", "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Storage configuration error", nil, "")
+	}
+	fullPath, err := filepath.Abs(filepath.Join(baseDir, filePath))
+	if err != nil || !strings.HasPrefix(fullPath, baseDir+string(os.PathSeparator)) {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
+	}
+
+	// Reject symlinks
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "File not found", nil, "")
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
+	}
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		a.Log.Error("Failed to read media file", "path", fullPath, "error", err)
+		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to read file", nil, "")
+	}
+
+	r.RequestCtx.Response.Header.Set("Content-Type", contentTypeFromExtension(filePath))
+	r.RequestCtx.Response.Header.Set("Cache-Control", "private, max-age=3600") // Cache for 1 hour, private
+	r.RequestCtx.SetBody(data)
+	return nil
+}
+
+// contentTypeFromExtension maps a stored file's extension to a MIME type for
+// local-disk serving (S3 objects carry their own Content-Type from upload).
+func contentTypeFromExtension(filePath string) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".mp4":
+		return "video/mp4"
+	case ".3gp":
+		return "video/3gpp"
+	case ".mp3":
+		return "audio/mpeg"
+	case ".aac":
+		return "audio/aac"
+	case ".m4a":
+		return "audio/mp4"
+	case ".ogg":
+		return "audio/ogg"
+	case ".amr":
+		return "audio/amr"
+	case ".pdf":
+		return "application/pdf"
+	case ".doc":
+		return "application/msword"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".txt":
+		return "text/plain"
+	default:
+		return "application/octet-stream"
+	}
+}
 
 // getMediaStoragePath returns the base path for media storage
 func (a *App) getMediaStoragePath() string {
@@ -112,19 +238,10 @@ func (a *App) DownloadAndSaveMedia(ctx context.Context, mediaID string, mimeType
 		subdir = "documents"
 	}
 
-	// Ensure directory exists
-	if err := a.ensureMediaDir(subdir); err != nil {
-		return "", fmt.Errorf("failed to create media directory: %w", err)
+	relativePath, err := a.saveMedia(ctx, data, mimeType, subdir, filename)
+	if err != nil {
+		return "", err
 	}
-
-	// Save file
-	filePath := filepath.Join(a.getMediaStoragePath(), subdir, filename)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
-		return "", fmt.Errorf("failed to save media file: %w", err)
-	}
-
-	// Return relative path for storage in database
-	relativePath := filepath.Join(subdir, filename)
 	a.Log.Info("Media saved", "path", relativePath, "size", len(data))
 
 	return relativePath, nil
@@ -179,77 +296,5 @@ func (a *App) ServeMedia(r *fastglue.Request) error {
 		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "No media found", nil, "")
 	}
 
-	// Security: prevent directory traversal and symlink attacks
-	filePath := filepath.Clean(message.MediaURL)
-	baseDir, err := filepath.Abs(a.getMediaStoragePath())
-	if err != nil {
-		a.Log.Error("Storage configuration error", "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Storage configuration error", nil, "")
-	}
-	fullPath, err := filepath.Abs(filepath.Join(baseDir, filePath))
-	if err != nil || !strings.HasPrefix(fullPath, baseDir+string(os.PathSeparator)) {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
-	}
-
-	// Reject symlinks
-	info, err := os.Lstat(fullPath)
-	if err != nil {
-		return r.SendErrorEnvelope(fasthttp.StatusNotFound, "File not found", nil, "")
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return r.SendErrorEnvelope(fasthttp.StatusBadRequest, "Invalid file path", nil, "")
-	}
-
-	// Read file
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		a.Log.Error("Failed to read media file", "path", fullPath, "error", err)
-		return r.SendErrorEnvelope(fasthttp.StatusInternalServerError, "Failed to read file", nil, "")
-	}
-
-	// Determine content type from extension
-	ext := strings.ToLower(filepath.Ext(filePath))
-	contentType := "application/octet-stream"
-	switch ext {
-	case ".jpg", ".jpeg":
-		contentType = "image/jpeg"
-	case ".png":
-		contentType = "image/png"
-	case ".gif":
-		contentType = "image/gif"
-	case ".webp":
-		contentType = "image/webp"
-	case ".mp4":
-		contentType = "video/mp4"
-	case ".3gp":
-		contentType = "video/3gpp"
-	case ".mp3":
-		contentType = "audio/mpeg"
-	case ".aac":
-		contentType = "audio/aac"
-	case ".m4a":
-		contentType = "audio/mp4"
-	case ".ogg":
-		contentType = "audio/ogg"
-	case ".amr":
-		contentType = "audio/amr"
-	case ".pdf":
-		contentType = "application/pdf"
-	case ".doc":
-		contentType = "application/msword"
-	case ".docx":
-		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case ".xls":
-		contentType = "application/vnd.ms-excel"
-	case ".xlsx":
-		contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case ".txt":
-		contentType = "text/plain"
-	}
-
-	r.RequestCtx.Response.Header.Set("Content-Type", contentType)
-	r.RequestCtx.Response.Header.Set("Cache-Control", "private, max-age=3600") // Cache for 1 hour, private
-	r.RequestCtx.SetBody(data)
-
-	return nil
+	return a.writeMediaResponse(r, message.MediaURL)
 }
