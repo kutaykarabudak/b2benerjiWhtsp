@@ -87,7 +87,8 @@ import {
   Code,
   RotateCw,
   Filter,
-  StickyNote
+  StickyNote,
+  Copy
 } from 'lucide-vue-next'
 import { getInitials, getAvatarGradient } from '@/lib/utils'
 import { useColorMode } from '@/composables/useColorMode'
@@ -1179,6 +1180,17 @@ function replyToMessage(message: Message) {
   nextTick(() => {
     messageInputRef.value?.focus()
   })
+}
+
+async function copyMessageText(message: Message) {
+  const text = getMessageContent(message)
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('common.copiedToClipboard'))
+  } catch {
+    toast.error(t('chat.copyFailed'))
+  }
 }
 
 // Watch for slash commands in message input
@@ -2317,6 +2329,16 @@ async function sendMediaMessage() {
                 >
                   <Reply class="h-3 w-3" />
                 </Button>
+                <Button
+                  v-if="getMessageContent(message)"
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6"
+                  :title="$t('chat.copyMessage')"
+                  @click="copyMessageText(message)"
+                >
+                  <Copy class="h-3 w-3" />
+                </Button>
               </div>
               <!-- Reply button for outgoing messages (shown on hover) -->
               <div v-if="message.direction === 'outgoing'" class="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity self-center ml-1">
@@ -2346,6 +2368,16 @@ async function sendMediaMessage() {
                   @click="replyToMessage(message)"
                 >
                   <Reply class="h-3 w-3" />
+                </Button>
+                <Button
+                  v-if="getMessageContent(message)"
+                  variant="ghost"
+                  size="icon"
+                  class="h-6 w-6"
+                  :title="$t('chat.copyMessage')"
+                  @click="copyMessageText(message)"
+                >
+                  <Copy class="h-3 w-3" />
                 </Button>
                 <Button
                   v-if="message.status === 'failed' && message.message_type !== 'template'"

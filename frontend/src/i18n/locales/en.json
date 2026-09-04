@@ -318,6 +318,8 @@
     "reply": "Reply",
     "replyingTo": "Replying to",
     "cancelReply": "Cancel reply",
+    "copyMessage": "Copy message",
+    "copyFailed": "Failed to copy message",
     "selectConversation": "Select a conversation",
     "chooseContact": "Choose a contact to start chatting",
     "unreadMessage": "unread message",

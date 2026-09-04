@@ -55,6 +55,7 @@ const openingTemplateParams = ref<Record<string, string>>({})
 const openingHeaderFile = ref<File | null>(null)
 const openingTemplateSent = ref(false)
 const messagesEl = ref<HTMLElement | null>(null)
+const draftInput = ref<HTMLTextAreaElement | null>(null)
 const realtime = useRealtimeStore()
 const attachmentMenuOpen = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -625,11 +626,30 @@ async function send() {
   try {
     await sendText(selected.value.id, body)
     draft.value = ''
+    nextTick(resizeDraftInput)
     await loadMessages()
   } catch (e: any) {
     alert(e?.response?.data?.message || 'Mesaj gönderilemedi.')
   } finally {
     sending.value = false
+  }
+}
+
+// Grows the composer textarea with its content (up to a cap) instead of
+// scrolling internally, so pasted multi-line text stays visible while typing.
+function resizeDraftInput() {
+  const el = draftInput.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+}
+
+// Enter sends (matches the old single-line input's behavior); Shift+Enter
+// inserts a newline like every other chat app.
+function onDraftKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    send()
   }
 }
 
@@ -754,6 +774,23 @@ function fmtTime(iso: string | null): string {
 // authenticated endpoint instead of resolving it below the current /inbox URL.
 function messageMediaURL(message: Message) {
   return `/api/media/${encodeURIComponent(message.id)}`
+}
+
+// Copies the raw message text (not the rendered DOM selection) so line
+// breaks and spacing survive the round trip when pasted into another chat.
+const copiedMessageId = ref<string | null>(null)
+async function copyMessage(m: Message) {
+  const text = messageBody(m) || m.interactive_data?.body || ''
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    copiedMessageId.value = m.id
+    setTimeout(() => {
+      if (copiedMessageId.value === m.id) copiedMessageId.value = null
+    }, 1500)
+  } catch {
+    // Clipboard access denied or unavailable — nothing to recover from here.
+  }
 }
 </script>
 
@@ -990,7 +1027,16 @@ function messageMediaURL(message: Message) {
                 <div v-if="m.direction === 'outgoing' && m.status === 'failed'" class="bubble-failed">
                   ✕ Gönderilemedi{{ m.error_message ? ': ' + m.error_message : '' }}
                 </div>
-                <div class="bubble-meta">{{ fmtTime(m.created_at) }}</div>
+                <div class="bubble-meta">
+                  <button
+                    v-if="messageBody(m) || m.interactive_data?.body"
+                    type="button"
+                    class="bubble-copy-btn"
+                    :title="copiedMessageId === m.id ? 'Kopyalandı' : 'Mesajı kopyala'"
+                    @click="copyMessage(m)"
+                  >{{ copiedMessageId === m.id ? '✓' : '📋' }}</button>
+                  {{ fmtTime(m.created_at) }}
+                </div>
               </div>
             </div>
           </div>
@@ -1064,7 +1110,15 @@ function messageMediaURL(message: Message) {
             >
               ⊞
             </button>
-            <input v-model="draft" placeholder="Mesaj yazın…" autocomplete="off" />
+            <textarea
+              ref="draftInput"
+              v-model="draft"
+              class="draft-input"
+              rows="1"
+              placeholder="Mesaj yazın…"
+              @keydown="onDraftKeydown"
+              @input="resizeDraftInput"
+            ></textarea>
             <button class="primary send-btn" type="submit" :disabled="sending || !draft.trim()">Gönder</button>
           </form>
           <section v-else class="closed-window-composer">
@@ -1312,7 +1366,10 @@ function messageMediaURL(message: Message) {
 .bubble-loc { color: #027eb5; text-decoration: none; font-weight: 600; }
 .bubble-text { white-space: pre-wrap; word-break: break-word; }
 .media-caption { margin-top: 5px; }
-.bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; }
+.bubble-meta { font-size: 10px; color: var(--muted); text-align: right; margin-top: 2px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.bubble-copy-btn { opacity: 0; transition: opacity .15s; background: none; border: none; cursor: pointer; font-size: 11px; line-height: 1; padding: 0; color: var(--muted); }
+.bubble:hover .bubble-copy-btn { opacity: .7; }
+.bubble-copy-btn:hover { opacity: 1 !important; }
 .bubble-failed { margin-top: 5px; padding-top: 5px; border-top: 1px solid rgba(224,75,75,.2); color: var(--danger); font-size: 11px; font-weight: 600; }
 .bubble-buttons { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; border-top: 1px solid rgba(0,0,0,0.08); padding-top: 6px; }
 .bubble-btn { text-align: center; font-size: 13px; color: #027eb5; padding: 5px; border-radius: 6px; background: rgba(0,0,0,0.03); }
@@ -1338,8 +1395,9 @@ function messageMediaURL(message: Message) {
 .btn-toggle { border: 1px solid var(--border); background: var(--panel); padding: 0 12px; font-size: 18px; border-radius: var(--radius); }
 
 .composer { display: flex; gap: 8px; padding: 11px 16px; border-top: 1px solid var(--border); background: rgba(255,255,255,.97); }
-.composer input { flex: 1; }
+.composer input, .composer textarea { flex: 1; }
 .composer > input:not([type=file]) { border-radius: 999px; padding-left: 17px; background: var(--bg-2); }
+.draft-input { resize: none; max-height: 140px; overflow-y: auto; line-height: 1.4; border-radius: 20px; padding-left: 17px; padding-top: 10px; background: var(--bg-2); white-space: pre-wrap; }
 .send-btn { border-radius: 999px; padding-left: 19px; padding-right: 19px; }
 .attachment-wrap { position: relative; display: flex; }
 .attachment-menu {

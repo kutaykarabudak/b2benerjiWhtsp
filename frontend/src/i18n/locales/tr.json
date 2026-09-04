@@ -318,6 +318,8 @@
     "reply": "Yanıtla",
     "replyingTo": "Yanıtlanan",
     "cancelReply": "Yanıtı iptal et",
+    "copyMessage": "Mesajı kopyala",
+    "copyFailed": "Mesaj kopyalanamadı",
     "selectConversation": "Bir konuşma seçin",
     "chooseContact": "Sohbete başlamak için kişi seçin",
     "unreadMessage": "okunmamış mesaj",
