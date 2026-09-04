@@ -23,6 +23,7 @@ import (
 // ContactResponse represents a contact with additional fields for the frontend
 type ContactResponse struct {
 	ID                 uuid.UUID  `json:"id"`
+	CustomerID         string     `json:"customer_id"`
 	PhoneNumber        string     `json:"phone_number"`
 	Name               string     `json:"name"`
 	ProfileName        string     `json:"profile_name"`
@@ -141,6 +142,7 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	cityParam := strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("city")))
 	districtParam := strings.TrimSpace(string(r.RequestCtx.QueryArgs().Peek("district")))
 	hasMessagesParam := string(r.RequestCtx.QueryArgs().Peek("has_messages"))
+	b2bRegisteredParam := string(r.RequestCtx.QueryArgs().Peek("b2b_registered"))
 
 	var contacts []models.Contact
 	query := a.ScopeToOrg(a.DB, userID, orgID)
@@ -153,6 +155,15 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 	// from CRM/CSV remain available on the Contacts page until a message exists.
 	if hasMessagesParam == "true" {
 		query = query.Where("last_message_at IS NOT NULL")
+	}
+
+	// A WhatsApp conversation must always have a contact row, even when the
+	// phone number does not exist in B2B. Keep those rows for the inbox while
+	// allowing CRM/contact pickers to distinguish them by B2B Panel ID.
+	if b2bRegisteredParam == "true" {
+		query = query.Where("NULLIF(TRIM(customer_id), '') IS NOT NULL")
+	} else if b2bRegisteredParam == "false" {
+		query = query.Where("NULLIF(TRIM(customer_id), '') IS NULL")
 	}
 
 	if search != "" {
@@ -264,6 +275,7 @@ func (a *App) ListContacts(r *fastglue.Request) error {
 
 		response[i] = ContactResponse{
 			ID:                 c.ID,
+			CustomerID:         c.CustomerID,
 			PhoneNumber:        phoneNumber,
 			Name:               profileName,
 			ProfileName:        profileName,
@@ -1812,6 +1824,7 @@ func (a *App) buildContactResponse(contact *models.Contact, orgID uuid.UUID) Con
 
 	return ContactResponse{
 		ID:                 contact.ID,
+		CustomerID:         contact.CustomerID,
 		PhoneNumber:        phoneNumber,
 		Name:               profileName,
 		ProfileName:        profileName,

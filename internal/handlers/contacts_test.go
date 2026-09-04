@@ -108,6 +108,44 @@ func TestApp_ListContacts(t *testing.T) {
 		assert.Equal(t, withHistory.ID, resp.Data.Contacts[0].ID)
 	})
 
+	t.Run("filters contacts by B2B registration", func(t *testing.T) {
+		app := newTestApp(t)
+		org := testutil.CreateTestOrganization(t, app.DB)
+		adminRole := testutil.CreateAdminRole(t, app.DB, org.ID)
+		user := testutil.CreateTestUser(t, app.DB, org.ID, testutil.WithRoleID(&adminRole.ID))
+
+		b2bContact := testutil.CreateTestContact(t, app.DB, org.ID)
+		require.NoError(t, app.DB.Model(b2bContact).Update("customer_id", "B2B-42").Error)
+		whatsAppOnlyContact := testutil.CreateTestContact(t, app.DB, org.ID)
+
+		for _, testCase := range []struct {
+			name       string
+			registered string
+			expectedID uuid.UUID
+		}{
+			{name: "registered", registered: "true", expectedID: b2bContact.ID},
+			{name: "not registered", registered: "false", expectedID: whatsAppOnlyContact.ID},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				req := testutil.NewGETRequest(t)
+				testutil.SetAuthContext(req, org.ID, user.ID)
+				testutil.SetQueryParam(req, "b2b_registered", testCase.registered)
+
+				require.NoError(t, app.ListContacts(req))
+				var resp struct {
+					Data struct {
+						Contacts []handlers.ContactResponse `json:"contacts"`
+						Total    int64                      `json:"total"`
+					} `json:"data"`
+				}
+				require.NoError(t, json.Unmarshal(testutil.GetResponseBody(req), &resp))
+				assert.Equal(t, int64(1), resp.Data.Total)
+				require.Len(t, resp.Data.Contacts, 1)
+				assert.Equal(t, testCase.expectedID, resp.Data.Contacts[0].ID)
+			})
+		}
+	})
+
 	t.Run("filter by search on phone number", func(t *testing.T) {
 		app := newTestApp(t)
 		org := testutil.CreateTestOrganization(t, app.DB)

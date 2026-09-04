@@ -23,7 +23,7 @@ const router = useRouter()
 const emptyForm = () => ({ phone_number: '', profile_name: '', company_name: '', email: '', tax_office: '', tax_number: '', address: '', city: '', district: '', postal_code: '', purchase_score: 0, has_purchased: false, notes: '', tags: '' })
 const form = ref(emptyForm())
 const editingId = ref<string | null>(null)
-const filters = ref({ category: '', purchased: '', minScore: '', city: '', district: '' })
+const filters = ref({ registry: 'b2b', category: '', purchased: '', minScore: '', city: '', district: '' })
 
 function startChat(c: Contact) {
   router.push({ path: '/inbox', query: { contact: c.id } })
@@ -64,7 +64,8 @@ async function load() {
       has_purchased: filters.value.purchased ? filters.value.purchased === 'yes' : undefined,
       min_purchase_score: filters.value.minScore ? Number(filters.value.minScore) : undefined,
       city: filters.value.city || undefined,
-      district: filters.value.district || undefined
+      district: filters.value.district || undefined,
+      b2b_registered: filters.value.registry === 'all' ? undefined : filters.value.registry === 'b2b'
     })
   } finally {
     loading.value = false
@@ -114,7 +115,7 @@ function edit(c: Contact) {
 }
 
 function cancelForm() { showAdd.value = false; editingId.value = null; form.value = emptyForm() }
-function clearFilters() { filters.value = { category: '', purchased: '', minScore: '', city: '', district: '' }; load() }
+function clearFilters() { filters.value = { registry: 'b2b', category: '', purchased: '', minScore: '', city: '', district: '' }; load() }
 function openCampaigns() { router.push({ path: '/campaigns', query: { tags: filters.value.category || undefined, has_purchased: filters.value.purchased || undefined, min_purchase_score: filters.value.minScore || undefined, city: filters.value.city || undefined, district: filters.value.district || undefined } }) }
 
 async function remove(c: Contact) {
@@ -249,6 +250,7 @@ onMounted(load)
     <div class="card crm-filters">
       <div class="filter-head"><div><b>CRM hedef kitle filtreleri</b><div class="muted small">Filtreleri birleştirerek toplu mesaj kitlesi oluşturun.</div></div><button class="primary" @click="openCampaigns">📣 Toplu Mesaj</button></div>
       <div class="row">
+        <div class="field"><label>Kayıt kaynağı</label><select v-model="filters.registry"><option value="b2b">Yalnızca B2B müşterileri</option><option value="all">Tüm kişiler</option><option value="whatsapp">B2B kaydı olmayanlar</option></select></div>
         <div class="field"><label>Kategori</label><input v-model="filters.category" placeholder="Ör. vip" /></div>
         <div class="field"><label>Satın alım</label><select v-model="filters.purchased"><option value="">Tümü</option><option value="yes">Alım yapanlar</option><option value="no">Alım yapmayanlar</option></select></div>
         <div class="field"><label>Minimum puan</label><input v-model="filters.minScore" type="number" min="0" max="100" /></div>

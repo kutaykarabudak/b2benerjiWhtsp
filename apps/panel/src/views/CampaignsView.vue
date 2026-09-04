@@ -165,7 +165,8 @@ async function loadPickerContacts() {
       has_purchased: pickerFilters.value.purchased ? pickerFilters.value.purchased === 'yes' : undefined,
       min_purchase_score: pickerFilters.value.minScore ? Number(pickerFilters.value.minScore) : undefined,
       city: pickerFilters.value.city.trim() || undefined,
-      district: pickerFilters.value.district.trim() || undefined
+      district: pickerFilters.value.district.trim() || undefined,
+      b2b_registered: true
     })
     pickerContacts.value = list.map((x) => ({
       id: x.id,

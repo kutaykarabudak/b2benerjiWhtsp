@@ -16,7 +16,7 @@ export interface CreateContactInput {
   purchase_score?: number; has_purchased?: boolean
 }
 
-export interface ContactFilters { search?: string; tags?: string; has_purchased?: boolean; min_purchase_score?: number; city?: string; district?: string }
+export interface ContactFilters { search?: string; tags?: string; has_purchased?: boolean; min_purchase_score?: number; city?: string; district?: string; b2b_registered?: boolean }
 
 export interface ImportResult {
   created: number
@@ -41,6 +41,7 @@ export async function listContacts(search = '', filters: ContactFilters = {}): P
   if (filters.min_purchase_score !== undefined) params.min_purchase_score = filters.min_purchase_score
   if (filters.city) params.city = filters.city
   if (filters.district) params.district = filters.district
+  if (filters.b2b_registered !== undefined) params.b2b_registered = filters.b2b_registered
   const contacts: Contact[] = []
   let page = 1
   let total = 0

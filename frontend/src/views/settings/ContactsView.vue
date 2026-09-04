@@ -33,6 +33,7 @@ const isImportExportOpen = ref(false)
 
 interface Contact {
   id: string
+  customer_id: string
   phone_number: string
   profile_name: string
   name: string
@@ -58,8 +59,8 @@ const error = ref(false)
 const isCreateDialogOpen = ref(false)
 const deleteDialogOpen = ref(false)
 const contactToDelete = ref<Contact | null>(null)
-const filters = ref({ category: 'all', purchased: 'all', minScore: '', city: '', district: '' })
-const hasActiveFilters = computed(() => filters.value.category !== 'all' || filters.value.purchased !== 'all' || !!filters.value.minScore || !!filters.value.city || !!filters.value.district)
+const filters = ref({ registry: 'b2b', category: 'all', purchased: 'all', minScore: '', city: '', district: '' })
+const hasActiveFilters = computed(() => filters.value.registry !== 'b2b' || filters.value.category !== 'all' || filters.value.purchased !== 'all' || !!filters.value.minScore || !!filters.value.city || !!filters.value.district)
 
 // Sorting state
 const sortKey = ref('last_message_at')
@@ -110,7 +111,8 @@ async function fetchContacts() {
       , tags: filters.value.category === 'all' ? undefined : filters.value.category,
       has_purchased: filters.value.purchased === 'all' ? undefined : filters.value.purchased === 'yes',
       min_purchase_score: filters.value.minScore ? Number(filters.value.minScore) : undefined,
-      city: filters.value.city || undefined, district: filters.value.district || undefined
+      city: filters.value.city || undefined, district: filters.value.district || undefined,
+      b2b_registered: filters.value.registry === 'all' ? undefined : filters.value.registry === 'b2b'
     })
     const data = response.data as any
     const responseData = data.data || data
@@ -146,7 +148,7 @@ onMounted(() => {
 })
 
 function clearFilters() {
-  filters.value = { category: 'all', purchased: 'all', minScore: '', city: '', district: '' }
+  filters.value = { registry: 'b2b', category: 'all', purchased: 'all', minScore: '', city: '', district: '' }
   currentPage.value = 1
   fetchContacts()
 }
@@ -221,7 +223,8 @@ function getDisplayName(contact: Contact): string {
             <CardContent>
               <div class="mb-5 rounded-xl border bg-muted/20 p-4">
                 <div class="mb-3 flex items-center justify-between gap-3"><div><p class="text-sm font-medium">CRM hedef kitle filtreleri</p><p class="text-xs text-muted-foreground">Filtreleri birleştirerek toplu mesaj kitlenizi oluşturun.</p></div><Button size="sm" @click="openBulkMessaging"><MessageSquare class="mr-2 h-4 w-4" />Toplu mesaj</Button></div>
-                <div class="grid gap-3 md:grid-cols-5">
+                <div class="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                  <div><Label class="text-xs">Kayıt kaynağı</Label><Select v-model="filters.registry"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="b2b">Yalnızca B2B müşterileri</SelectItem><SelectItem value="all">Tüm kişiler</SelectItem><SelectItem value="whatsapp">B2B kaydı olmayanlar</SelectItem></SelectContent></Select></div>
                   <div><Label class="text-xs">Kategori</Label><Select v-model="filters.category"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tümü</SelectItem><SelectItem v-for="tag in tagsStore.tags" :key="tag.id" :value="tag.name">{{ tag.name }}</SelectItem></SelectContent></Select></div>
                   <div><Label class="text-xs">Satın alım</Label><Select v-model="filters.purchased"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">Tümü</SelectItem><SelectItem value="yes">Alım yapanlar</SelectItem><SelectItem value="no">Alım yapmayanlar</SelectItem></SelectContent></Select></div>
                   <div><Label class="text-xs">Minimum puan</Label><Input v-model="filters.minScore" type="number" min="0" max="100" placeholder="0" /></div>
