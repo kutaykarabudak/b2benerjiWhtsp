@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { campaignsService, templatesService, api } from '@/services/api'
+import { campaignsService, templatesService, contactsService, api } from '@/services/api'
 import { wsService } from '@/services/websocket'
 import { toast } from 'vue-sonner'
 import { useUnsavedChangesGuard } from '@/composables/useUnsavedChangesGuard'
@@ -75,6 +75,8 @@ import {
   FileSpreadsheet,
   ChevronDown,
   Download,
+  Search,
+  Loader2,
 } from 'lucide-vue-next'
 
 interface Campaign {
@@ -124,6 +126,18 @@ interface Recipient {
   sent_at?: string
   delivered_at?: string
   error_message?: string
+}
+
+interface CampaignContact {
+  id: string
+  phone_number: string
+  name?: string
+  profile_name?: string
+  whatsapp_account?: string
+  email?: string
+  company_name?: string
+  city?: string
+  district?: string
 }
 
 const route = useRoute()
@@ -200,6 +214,11 @@ const showMediaUpload = ref(false)
 const recipientsInput = ref('')
 const addRecipientsTab = ref('manual')
 const csvFile = ref<File | null>(null)
+const campaignContacts = ref<CampaignContact[]>([])
+const contactSearch = ref('')
+const isLoadingContacts = ref(false)
+const selectedContactIds = ref<Set<string>>(new Set())
+const selectedContactParams = ref<Record<string, Record<string, string>>>({})
 
 // --- Selected template for param extraction ---
 const selectedTemplate = ref<Template | null>(null)
@@ -585,7 +604,10 @@ async function deleteRecipient(recipientId: string) {
 async function openAddRecipientsDialog() {
   recipientsInput.value = ''
   csvFile.value = null
-  addRecipientsTab.value = 'manual'
+  addRecipientsTab.value = 'contacts'
+  contactSearch.value = ''
+  selectedContactIds.value = new Set()
+  selectedContactParams.value = {}
 
   // Fetch template details if needed
   if (campaign.value?.template_id && !selectedTemplate.value) {
@@ -598,6 +620,105 @@ async function openAddRecipientsDialog() {
   }
 
   showAddRecipientsDialog.value = true
+  await loadCampaignContacts()
+}
+
+function digitsOnlyPhone(value: string): string {
+  return (value || '').replace(/\D/g, '')
+}
+
+const existingRecipientPhones = computed(() => new Set(recipients.value.map(item => digitsOnlyPhone(item.phone_number))))
+
+function contactDisplayName(contact: CampaignContact): string {
+  return contact.profile_name || contact.name || contact.phone_number
+}
+
+function defaultContactParam(contact: CampaignContact, parameter: string): string {
+  const key = parameter.toLowerCase().replace(/[^a-z0-9]+/g, '_')
+  if (['contact_name', 'customer_name', 'name', 'recipient_name'].includes(key)) return contactDisplayName(contact)
+  if (['phone', 'phone_number', 'mobile', 'mobile_number'].includes(key)) return contact.phone_number
+  if (key === 'email') return contact.email || ''
+  if (['company', 'company_name'].includes(key)) return contact.company_name || ''
+  if (key === 'city') return contact.city || ''
+  if (key === 'district') return contact.district || ''
+  return ''
+}
+
+async function loadCampaignContacts() {
+  isLoadingContacts.value = true
+  try {
+    const response = await contactsService.list({ search: contactSearch.value.trim() || undefined, limit: 100 })
+    const data = (response.data as any).data || response.data
+    campaignContacts.value = data.contacts || []
+  } catch (err: unknown) {
+    campaignContacts.value = []
+    toast.error(getErrorMessage(err, t('common.failedLoad', { resource: t('nav.contacts', 'contacts') })))
+  } finally {
+    isLoadingContacts.value = false
+  }
+}
+
+function toggleCampaignContact(contact: CampaignContact, checked: boolean) {
+  const next = new Set(selectedContactIds.value)
+  if (checked) {
+    next.add(contact.id)
+    const values: Record<string, string> = {}
+    for (const parameter of templateParamNames.value) {
+      values[parameter] = defaultContactParam(contact, parameter)
+    }
+    selectedContactParams.value = { ...selectedContactParams.value, [contact.id]: values }
+  } else {
+    next.delete(contact.id)
+    const values = { ...selectedContactParams.value }
+    delete values[contact.id]
+    selectedContactParams.value = values
+  }
+  selectedContactIds.value = next
+}
+
+const selectedCampaignContacts = computed(() => campaignContacts.value.filter(contact => selectedContactIds.value.has(contact.id)))
+
+const selectedContactsReady = computed(() => {
+  if (selectedCampaignContacts.value.length === 0) return false
+  return selectedCampaignContacts.value.every(contact =>
+    templateParamNames.value.every(parameter => (selectedContactParams.value[contact.id]?.[parameter] || '').trim().length > 0)
+  )
+})
+
+async function addSelectedContacts() {
+  if (!campaign.value || !selectedContactsReady.value) return
+  const bodyNames = templateBodyParamNames.value
+  const headerName = templateHeaderParamName.value
+  const payload = selectedCampaignContacts.value.map(contact => {
+    const values = selectedContactParams.value[contact.id] || {}
+    const templateParams: Record<string, string> = {}
+    for (const name of bodyNames) templateParams[name] = values[name]
+    const recipient: {
+      phone_number: string
+      recipient_name?: string
+      template_params?: Record<string, string>
+      header_params?: Record<string, string>
+    } = {
+      phone_number: contact.phone_number,
+      recipient_name: contactDisplayName(contact),
+    }
+    if (bodyNames.length > 0) recipient.template_params = templateParams
+    if (headerName) recipient.header_params = { [headerName]: values.header }
+    return recipient
+  })
+  isAddingRecipients.value = true
+  try {
+    const response = await campaignsService.addRecipients(campaign.value.id, payload)
+    const result = (response.data as any).data
+    toast.success(t('campaigns.addedRecipients', { count: result?.added_count || payload.length }, `Added ${result?.added_count || payload.length} recipients`))
+    showAddRecipientsDialog.value = false
+    await loadCampaign()
+    await loadRecipients()
+  } catch (err: unknown) {
+    toast.error(getErrorMessage(err, t('campaigns.addRecipientsFailed', 'Failed to add recipients')))
+  } finally {
+    isAddingRecipients.value = false
+  }
 }
 
 const manualInputValidation = computed(() => {
@@ -1354,7 +1475,11 @@ onUnmounted(() => {
       </DialogHeader>
 
       <Tabs v-model="addRecipientsTab">
-        <TabsList class="w-full">
+        <TabsList class="w-full grid grid-cols-3">
+          <TabsTrigger value="contacts" class="flex-1">
+            <Users class="h-4 w-4 mr-1" />
+            {{ $t('nav.contacts', 'Contacts') }}
+          </TabsTrigger>
           <TabsTrigger value="manual" class="flex-1">
             <UserPlus class="h-4 w-4 mr-1" />
             {{ $t('campaigns.manualEntry', 'Manual Entry') }}
@@ -1364,6 +1489,84 @@ onUnmounted(() => {
             {{ $t('campaigns.csvUpload', 'CSV Upload') }}
           </TabsTrigger>
         </TabsList>
+
+        <!-- Contact selection tab -->
+        <TabsContent value="contacts" class="space-y-3 mt-3">
+          <div class="flex gap-2">
+            <div class="relative flex-1">
+              <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                v-model="contactSearch"
+                :placeholder="$t('contacts.searchPlaceholder', 'Search name or phone')"
+                class="pl-8"
+                @keydown.enter.prevent="loadCampaignContacts"
+              />
+            </div>
+            <Button type="button" variant="outline" :disabled="isLoadingContacts" @click="loadCampaignContacts">
+              <Loader2 v-if="isLoadingContacts" class="h-4 w-4 animate-spin" />
+              <Search v-else class="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div class="max-h-56 overflow-y-auto rounded-md border divide-y">
+            <div v-if="isLoadingContacts" class="flex items-center justify-center py-8 text-muted-foreground">
+              <Loader2 class="h-5 w-5 animate-spin mr-2" />
+              {{ $t('common.loading', 'Loading...') }}
+            </div>
+            <div v-else-if="campaignContacts.length === 0" class="py-8 text-center text-sm text-muted-foreground">
+              {{ $t('contacts.noContacts', 'No contacts found') }}
+            </div>
+            <template v-else>
+              <label
+                v-for="contact in campaignContacts"
+                :key="contact.id"
+                class="flex items-center gap-3 px-3 py-2.5"
+                :class="existingRecipientPhones.has(digitsOnlyPhone(contact.phone_number)) ? 'opacity-50' : 'cursor-pointer hover:bg-muted/50'"
+              >
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-input accent-primary"
+                  :checked="selectedContactIds.has(contact.id)"
+                  :disabled="existingRecipientPhones.has(digitsOnlyPhone(contact.phone_number))"
+                  @change="toggleCampaignContact(contact, ($event.target as HTMLInputElement).checked)"
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium truncate">{{ contactDisplayName(contact) }}</p>
+                  <p class="text-xs text-muted-foreground font-mono">{{ contact.phone_number }}</p>
+                </div>
+                <span v-if="existingRecipientPhones.has(digitsOnlyPhone(contact.phone_number))" class="text-[10px] text-muted-foreground">
+                  {{ $t('campaigns.alreadyAdded', 'Already added') }}
+                </span>
+              </label>
+            </template>
+          </div>
+
+          <div v-if="selectedCampaignContacts.length > 0 && templateParamNames.length > 0" class="space-y-3 rounded-md border p-3">
+            <p class="text-xs text-muted-foreground">
+              {{ $t('campaigns.fillRecipientParams', 'Fill the required template values for each selected contact.') }}
+            </p>
+            <div v-for="contact in selectedCampaignContacts" :key="`params-${contact.id}`" class="space-y-2">
+              <p class="text-xs font-medium">{{ contactDisplayName(contact) }} · {{ contact.phone_number }}</p>
+              <div class="grid grid-cols-2 gap-2">
+                <Input
+                  v-for="parameter in templateParamNames"
+                  :key="`${contact.id}-${parameter}`"
+                  v-model="selectedContactParams[contact.id][parameter]"
+                  :placeholder="parameter === 'header' ? $t('campaigns.headerValue', 'Header value') : parameter"
+                  class="h-8 text-xs"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button @click="addSelectedContacts" :disabled="isAddingRecipients || !selectedContactsReady">
+              <Loader2 v-if="isAddingRecipients" class="h-4 w-4 mr-1 animate-spin" />
+              <UserPlus v-else class="h-4 w-4 mr-1" />
+              {{ $t('campaigns.addSelectedContacts', { count: selectedCampaignContacts.length }, `Add selected (${selectedCampaignContacts.length})`) }}
+            </Button>
+          </DialogFooter>
+        </TabsContent>
 
         <!-- Manual Entry Tab -->
         <TabsContent value="manual" class="space-y-3 mt-3">

@@ -3,6 +3,7 @@ package serverlessapp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -258,10 +259,6 @@ func (a *App) ImportCampaignRecipients(ctx *fasthttp.RequestCtx) {
 
 func normalizeCampaignPhone(value string) string {
 	value = strings.TrimSpace(value)
-	prefix := ""
-	if strings.HasPrefix(value, "+") {
-		prefix = "+"
-	}
 	digits := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
 			return r
@@ -271,7 +268,7 @@ func normalizeCampaignPhone(value string) string {
 	if len(digits) < 10 || len(digits) > 15 {
 		return ""
 	}
-	return prefix + digits
+	return digits
 }
 
 func (a *App) DeleteCampaignRecipient(ctx *fasthttp.RequestCtx) {
@@ -527,6 +524,9 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 				recipient.WhatsAppMessageID = externalID
 				recipient.SentAt = &sentAt
 				recipient.UpdatedAt = sentAt
+				if saveErr := a.saveCampaignChatMessage(context.Background(), orgID, claims.UserID.String(), account.Name, campaign, template, recipient, externalID, sentAt); saveErr != nil {
+					recipient.ErrorMessage = "Message was sent but could not be added to the chat history: " + saveErr.Error()
+				}
 			}
 		}
 		if buildErr != nil {
@@ -576,6 +576,52 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 	campaign.UpdatedAt = finished
 	_ = a.administration().PutCampaign(context.Background(), *campaign)
 	writeData(ctx, 200, map[string]any{"message": "Campaign processing finished", "status": campaign.Status, "processed": processed, "sent_count": campaign.SentCount, "failed_count": campaign.FailedCount})
+}
+
+func (a *App) saveCampaignChatMessage(ctx context.Context, orgID, userID, accountName string, campaign *firestorestore.Campaign, template *firestorestore.Template, recipient *firestorestore.CampaignRecipient, externalID string, sentAt time.Time) error {
+	phone := normalizeCampaignPhone(recipient.PhoneNumber)
+	contact, err := a.store.ContactByPhone(ctx, orgID, accountName, phone)
+	if errors.Is(err, firestorestore.ErrNotFound) {
+		contact = &firestorestore.Contact{
+			ID: uuid.NewString(), OrganizationID: orgID, PhoneNumber: phone,
+			ProfileName:     firstNonEmpty(strings.TrimSpace(recipient.RecipientName), phone),
+			WhatsAppAccount: accountName, ChannelType: "whatsapp", IsRead: true,
+			Tags: []any{}, Metadata: map[string]any{}, CreatedAt: sentAt, UpdatedAt: sentAt,
+		}
+		contact.SearchTokens = firestorestore.BuildContactSearchTokens(*contact)
+		if err := a.store.CreateContact(ctx, *contact); err != nil {
+			if !errors.Is(err, firestorestore.ErrConflict) {
+				return err
+			}
+			contact, err = a.store.ContactByPhone(ctx, orgID, accountName, phone)
+			if err != nil {
+				return err
+			}
+		}
+	} else if err != nil {
+		return err
+	}
+	content := "[Template: " + firstNonEmpty(template.DisplayName, template.Name) + "]"
+	message := firestorestore.Message{
+		ID: uuid.NewString(), OrganizationID: orgID, ContactID: contact.ID,
+		WhatsAppAccount: accountName, ChannelType: "whatsapp", ExternalID: externalID,
+		Direction: "outgoing", MessageType: "template", Content: content,
+		TemplateName: template.Name, TemplateParams: recipient.TemplateParams, Status: "sent",
+		SentByUserID: userID, Metadata: map[string]any{"campaign_id": campaign.ID, "campaign_recipient_id": recipient.ID},
+		CreatedAt: sentAt, UpdatedAt: sentAt,
+	}
+	if campaign.HeaderMediaKey != "" {
+		message.MediaURL = campaign.HeaderMediaKey
+		message.MediaMimeType = campaign.HeaderMediaMimeType
+		message.MediaFilename = campaign.HeaderMediaFilename
+	}
+	contact.WhatsAppAccount = accountName
+	contact.LastMessageAt = &sentAt
+	contact.LastMessagePreview = content
+	contact.IsRead = true
+	contact.UpdatedAt = sentAt
+	contact.SearchTokens = firestorestore.BuildContactSearchTokens(*contact)
+	return a.store.CreateOutgoingMessage(ctx, *contact, message)
 }
 
 func stringMap(values map[string]any) map[string]string {

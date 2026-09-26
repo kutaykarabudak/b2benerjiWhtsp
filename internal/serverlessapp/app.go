@@ -1312,11 +1312,6 @@ func (a *App) SendTemplate(ctx *fasthttp.RequestCtx) {
 		writeError(ctx, http.StatusBadRequest, "Template is not approved")
 		return
 	}
-	windowOpen := contact.LastInboundAt != nil && a.now().UTC().Sub(contact.LastInboundAt.UTC()) <= 24*time.Hour
-	if !windowOpen && !template.IsFirstMessage {
-		writeError(ctx, http.StatusConflict, "The 24-hour window is closed and this template is not enabled as a first message")
-		return
-	}
 	if contact.MarketingOptOut && strings.EqualFold(template.Category, "MARKETING") {
 		writeError(ctx, http.StatusBadRequest, "Contact has opted out of marketing messages")
 		return
@@ -1881,14 +1876,14 @@ func (a *App) Webhook(ctx *fasthttp.RequestCtx) {
 		if updatedAt.IsZero() {
 			updatedAt = a.now().UTC()
 		}
-		if updateErr := a.store.UpdateMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt); updateErr != nil {
-			if errors.Is(updateErr, firestorestore.ErrNotFound) {
-				if tracker, supported := a.store.(interface {
-					UpdateCampaignMessageStatus(context.Context, string, string, string, time.Time) error
-				}); supported {
-					updateErr = tracker.UpdateCampaignMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt)
-				}
-			}
+		messageErr := a.store.UpdateMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt)
+		campaignErr := error(firestorestore.ErrNotFound)
+		if tracker, supported := a.store.(interface {
+			UpdateCampaignMessageStatus(context.Context, string, string, string, time.Time) error
+		}); supported {
+			campaignErr = tracker.UpdateCampaignMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt)
+		}
+		for _, updateErr := range []error{messageErr, campaignErr} {
 			if updateErr != nil && !errors.Is(updateErr, firestorestore.ErrNotFound) {
 				writeError(ctx, http.StatusInternalServerError, "Webhook processing failed")
 				return

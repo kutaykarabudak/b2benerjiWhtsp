@@ -687,7 +687,9 @@ func TestSendTemplateWithMediaHeader(t *testing.T) {
 	app, store := testApp(t)
 	now := app.now().UTC()
 	contactID := uuid.NewString()
-	store.contacts = []firestorestore.Contact{{ID: contactID, OrganizationID: store.user.OrganizationID, PhoneNumber: "905550000000", ProfileName: "Test", WhatsAppAccount: "main", ChannelType: "whatsapp", LastInboundAt: &now, CreatedAt: now, UpdatedAt: now}}
+	// No LastInboundAt: approved templates must remain usable even when the
+	// 24-hour customer service window is closed.
+	store.contacts = []firestorestore.Contact{{ID: contactID, OrganizationID: store.user.OrganizationID, PhoneNumber: "905550000000", ProfileName: "Test", WhatsAppAccount: "main", ChannelType: "whatsapp", CreatedAt: now, UpdatedAt: now}}
 	store.accounts = []firestorestore.WhatsAppAccount{{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "main", PhoneID: "phone-1", BusinessID: "waba-1", AccessToken: "secret-token", APIVersion: "v23.0", IsDefaultOutgoing: true, Status: "active", CreatedAt: now, UpdatedAt: now}}
 	store.templates = []firestorestore.Template{{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, WhatsAppAccount: "main", Name: "image_template", Language: "tr", Status: "APPROVED", HeaderType: "IMAGE", BodyContent: "Merhaba", Buttons: []any{}, SampleValues: []any{}, CreatedAt: now, UpdatedAt: now}}
 	sender := &fakeMessenger{}
@@ -721,6 +723,31 @@ func TestSendTemplateWithMediaHeader(t *testing.T) {
 	}
 	if len(store.messages) != 1 || store.messages[0].MediaURL != "media-1" || store.messages[0].MediaFilename != "header.png" {
 		t.Fatalf("messages=%+v", store.messages)
+	}
+}
+
+func TestCampaignMessageIsPersistedInChat(t *testing.T) {
+	app, store := testApp(t)
+	now := app.now().UTC()
+	campaign := &firestorestore.Campaign{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "Duyuru", WhatsAppAccount: "main"}
+	template := &firestorestore.Template{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "duyuru", DisplayName: "Duyuru", Status: "APPROVED"}
+	recipient := &firestorestore.CampaignRecipient{ID: uuid.NewString(), CampaignID: campaign.ID, PhoneNumber: "+905551112233", RecipientName: "Kampanya Kişisi", TemplateParams: map[string]any{"name": "Kampanya Kişisi"}}
+
+	if err := app.saveCampaignChatMessage(context.Background(), store.user.OrganizationID, store.user.ID, "main", campaign, template, recipient, "wamid.campaign-1", now); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.contacts) != 1 || store.contacts[0].PhoneNumber != "905551112233" {
+		t.Fatalf("contacts=%+v", store.contacts)
+	}
+	if len(store.messages) != 1 {
+		t.Fatalf("messages=%+v", store.messages)
+	}
+	message := store.messages[0]
+	if message.ContactID != store.contacts[0].ID || message.MessageType != "template" || message.ExternalID != "wamid.campaign-1" {
+		t.Fatalf("message=%+v", message)
+	}
+	if message.Metadata["campaign_id"] != campaign.ID || store.contacts[0].LastMessagePreview != "[Template: Duyuru]" {
+		t.Fatalf("message=%+v contact=%+v", message, store.contacts[0])
 	}
 }
 
