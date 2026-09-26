@@ -1881,9 +1881,18 @@ func (a *App) Webhook(ctx *fasthttp.RequestCtx) {
 		if updatedAt.IsZero() {
 			updatedAt = a.now().UTC()
 		}
-		if updateErr := a.store.UpdateMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt); updateErr != nil && !errors.Is(updateErr, firestorestore.ErrNotFound) {
-			writeError(ctx, http.StatusInternalServerError, "Webhook processing failed")
-			return
+		if updateErr := a.store.UpdateMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt); updateErr != nil {
+			if errors.Is(updateErr, firestorestore.ErrNotFound) {
+				if tracker, supported := a.store.(interface {
+					UpdateCampaignMessageStatus(context.Context, string, string, string, time.Time) error
+				}); supported {
+					updateErr = tracker.UpdateCampaignMessageStatus(requestCtx, update.MessageID, update.Status, errorMessage, updatedAt)
+				}
+			}
+			if updateErr != nil && !errors.Is(updateErr, firestorestore.ErrNotFound) {
+				writeError(ctx, http.StatusInternalServerError, "Webhook processing failed")
+				return
+			}
 		}
 	}
 	ctx.SetStatusCode(http.StatusOK)

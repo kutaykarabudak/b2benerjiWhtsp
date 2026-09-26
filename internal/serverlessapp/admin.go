@@ -41,6 +41,13 @@ type administrationStore interface {
 	PutTemplate(context.Context, firestorestore.Template) error
 	DeleteTemplate(context.Context, firestorestore.Template, time.Time) error
 	PutOrganization(context.Context, firestorestore.Organization) error
+	ListCampaigns(context.Context, string) ([]firestorestore.Campaign, error)
+	Campaign(context.Context, string, string) (*firestorestore.Campaign, error)
+	PutCampaign(context.Context, firestorestore.Campaign) error
+	DeleteCampaign(context.Context, firestorestore.Campaign, time.Time) error
+	ListCampaignRecipients(context.Context, string, string) ([]firestorestore.CampaignRecipient, error)
+	PutCampaignRecipients(context.Context, string, string, []firestorestore.CampaignRecipient) error
+	DeleteCampaignRecipient(context.Context, string, string, string) error
 }
 
 func (a *App) administration() administrationStore { return a.store.(administrationStore) }

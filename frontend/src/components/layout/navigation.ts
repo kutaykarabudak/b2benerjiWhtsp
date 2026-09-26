@@ -119,8 +119,14 @@ const fullNavigationSections: NavSection[] = [
 const serverlessCoreSections: NavSection[] = [
   {
     label: 'nav.sectionFocus',
-    permissions: ['chat'],
-    items: [{ name: 'nav.chat', path: '/chat', icon: MessageSquare, permission: 'chat' }]
+    permissions: ['chat', 'campaigns', 'contacts', 'templates', 'accounts'],
+    items: [
+      { name: 'nav.chat', path: '/chat', icon: MessageSquare, permission: 'chat' },
+      { name: 'nav.campaigns', path: '/campaigns', icon: Megaphone, permission: 'campaigns' },
+      { name: 'nav.contacts', path: '/settings/contacts', icon: Contact, permission: 'contacts' },
+      { name: 'nav.templates', path: '/templates', icon: FileText, permission: 'templates' },
+      { name: 'nav.accounts', path: '/settings/accounts', icon: Users, permission: 'accounts' }
+    ]
   },
   {
     label: 'nav.sectionOther',

@@ -311,9 +311,9 @@ onMounted(async () => {
             <div class="space-y-1.5"><Label class="text-xs">Şehir</Label><Input v-model="form.city" :disabled="!canWrite" /></div>
             <div class="space-y-1.5"><Label class="text-xs">İlçe</Label><Input v-model="form.district" :disabled="!canWrite" /></div>
             <div class="space-y-1.5"><Label class="text-xs">Posta kodu</Label><Input v-model="form.postal_code" :disabled="!canWrite" /></div>
-            <div class="space-y-1.5"><Label class="text-xs">Satın alma puanı (0-100)</Label><Input v-model.number="form.purchase_score" type="number" min="0" max="100" :disabled="!canWrite" /></div>
+            <div class="space-y-1.5"><Label class="text-xs">Satın alma puanı (0-100)</Label><Input :model-value="form.purchase_score" type="number" min="0" max="100" :disabled="!canWrite" @update:model-value="form.purchase_score = Number($event)" /></div>
           </div>
-          <div class="space-y-1.5"><Label class="text-xs">Açık adres</Label><Textarea v-model="form.address" :disabled="!canWrite" rows="3" /></div>
+          <div class="space-y-1.5"><Label class="text-xs">Açık adres</Label><Textarea v-model="form.address" :disabled="!canWrite" :rows="3" /></div>
           <div class="flex items-center justify-between rounded-lg border p-3">
             <div><Label>Daha önce satın alım yaptı</Label><p class="text-xs text-muted-foreground">Toplu mesaj filtrelerinde kullanılabilir.</p></div>
             <Switch v-model:checked="form.has_purchased" :disabled="!canWrite" />

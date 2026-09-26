@@ -353,7 +353,7 @@ async function loadTemplates() {
   }
   try {
     const response = await api.get('/templates', {
-      params: { whatsapp_account: form.value.whatsapp_account },
+      params: { account: form.value.whatsapp_account },
     })
     templates.value = (response.data as any).data?.templates || []
   } catch {
@@ -429,7 +429,7 @@ async function save() {
       name: form.value.name,
       whatsapp_account: form.value.whatsapp_account || undefined,
       template_id: form.value.template_id || undefined,
-      scheduled_at: form.value.scheduled_at || undefined,
+      scheduled_at: form.value.scheduled_at ? new Date(form.value.scheduled_at).toISOString() : null,
     }
     if (isNew.value) {
       const response = await campaignsService.create(payload)

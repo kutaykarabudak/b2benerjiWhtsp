@@ -703,6 +703,213 @@ func (s *Store) DeleteTemplate(ctx context.Context, template Template, deletedAt
 	return err
 }
 
+func (s *Store) campaign(orgID, campaignID string) *firestore.DocumentRef {
+	return s.organization(orgID).Collection("campaigns").Doc(campaignID)
+}
+
+func (s *Store) ListCampaigns(ctx context.Context, orgID string) ([]Campaign, error) {
+	it := s.organization(orgID).Collection("campaigns").Where("isDeleted", "==", false).Documents(ctx)
+	defer it.Stop()
+	var campaigns []Campaign
+	for {
+		snapshot, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		var campaign Campaign
+		if err := snapshot.DataTo(&campaign); err != nil {
+			return nil, err
+		}
+		campaigns = append(campaigns, campaign)
+	}
+	return campaigns, nil
+}
+
+func (s *Store) Campaign(ctx context.Context, orgID, campaignID string) (*Campaign, error) {
+	snapshot, err := s.campaign(orgID, campaignID).Get(ctx)
+	if firestoreIsNotFound(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var campaign Campaign
+	if err := snapshot.DataTo(&campaign); err != nil {
+		return nil, err
+	}
+	if campaign.IsDeleted {
+		return nil, ErrNotFound
+	}
+	return &campaign, nil
+}
+
+func (s *Store) PutCampaign(ctx context.Context, campaign Campaign) error {
+	if campaign.ID == "" || campaign.OrganizationID == "" {
+		return ErrInvalidArgument
+	}
+	_, err := s.campaign(campaign.OrganizationID, campaign.ID).Set(ctx, campaign)
+	return err
+}
+
+func (s *Store) DeleteCampaign(ctx context.Context, campaign Campaign, deletedAt time.Time) error {
+	campaign.IsDeleted, campaign.DeletedAt, campaign.UpdatedAt = true, &deletedAt, deletedAt
+	return s.PutCampaign(ctx, campaign)
+}
+
+func (s *Store) ListCampaignRecipients(ctx context.Context, orgID, campaignID string) ([]CampaignRecipient, error) {
+	it := s.campaign(orgID, campaignID).Collection("recipients").Documents(ctx)
+	defer it.Stop()
+	var recipients []CampaignRecipient
+	for {
+		snapshot, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		var recipient CampaignRecipient
+		if err := snapshot.DataTo(&recipient); err != nil {
+			return nil, err
+		}
+		recipients = append(recipients, recipient)
+	}
+	return recipients, nil
+}
+
+func (s *Store) PutCampaignRecipients(ctx context.Context, orgID, campaignID string, recipients []CampaignRecipient) error {
+	writer := s.client.BulkWriter(ctx)
+	defer writer.End()
+	jobs := make([]*firestore.BulkWriterJob, 0, len(recipients)*2)
+	for _, recipient := range recipients {
+		if recipient.ID == "" {
+			return ErrInvalidArgument
+		}
+		job, err := writer.Set(s.campaign(orgID, campaignID).Collection("recipients").Doc(recipient.ID), recipient)
+		if err != nil {
+			return err
+		}
+		jobs = append(jobs, job)
+		if recipient.WhatsAppMessageID != "" {
+			job, err = writer.Set(s.root().Collection("externalCampaignMessages").Doc(hash(recipient.WhatsAppMessageID)), map[string]any{
+				"organizationId": orgID,
+				"campaignId":     campaignID,
+				"recipientId":    recipient.ID,
+				"externalId":     recipient.WhatsAppMessageID,
+			})
+			if err != nil {
+				return err
+			}
+			jobs = append(jobs, job)
+		}
+	}
+	writer.Flush()
+	for _, job := range jobs {
+		if _, err := job.Results(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UpdateCampaignMessageStatus applies Meta delivery receipts to bulk campaign
+// recipients and refreshes the aggregate counters displayed in the campaign UI.
+func (s *Store) UpdateCampaignMessageStatus(ctx context.Context, externalID, messageStatus, errorMessage string, updatedAt time.Time) error {
+	lookup, err := s.root().Collection("externalCampaignMessages").Doc(hash(externalID)).Get(ctx)
+	if firestoreIsNotFound(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	data := lookup.Data()
+	orgID, campaignID, recipientID := fmt.Sprint(data["organizationId"]), fmt.Sprint(data["campaignId"]), fmt.Sprint(data["recipientId"])
+	if orgID == "" || campaignID == "" || recipientID == "" {
+		return ErrNotFound
+	}
+	recipientRef := s.campaign(orgID, campaignID).Collection("recipients").Doc(recipientID)
+	snapshot, err := recipientRef.Get(ctx)
+	if firestoreIsNotFound(err) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	var recipient CampaignRecipient
+	if err := snapshot.DataTo(&recipient); err != nil {
+		return err
+	}
+	status := strings.ToLower(strings.TrimSpace(messageStatus))
+	if campaignStatusRank(status) >= campaignStatusRank(recipient.Status) || status == "failed" {
+		recipient.Status = status
+		recipient.ErrorMessage = errorMessage
+		recipient.UpdatedAt = updatedAt
+		switch status {
+		case "sent":
+			if recipient.SentAt == nil {
+				recipient.SentAt = &updatedAt
+			}
+		case "delivered":
+			recipient.DeliveredAt = &updatedAt
+		case "read":
+			recipient.ReadAt = &updatedAt
+		}
+		if _, err := recipientRef.Set(ctx, recipient); err != nil {
+			return err
+		}
+	}
+	recipients, err := s.ListCampaignRecipients(ctx, orgID, campaignID)
+	if err != nil {
+		return err
+	}
+	campaign, err := s.Campaign(ctx, orgID, campaignID)
+	if err != nil {
+		return err
+	}
+	campaign.TotalRecipients = len(recipients)
+	campaign.SentCount, campaign.DeliveredCount, campaign.ReadCount, campaign.FailedCount = 0, 0, 0, 0
+	for _, item := range recipients {
+		switch strings.ToLower(item.Status) {
+		case "sent":
+			campaign.SentCount++
+		case "delivered":
+			campaign.SentCount++
+			campaign.DeliveredCount++
+		case "read":
+			campaign.SentCount++
+			campaign.DeliveredCount++
+			campaign.ReadCount++
+		case "failed":
+			campaign.FailedCount++
+		}
+	}
+	campaign.UpdatedAt = updatedAt
+	return s.PutCampaign(ctx, *campaign)
+}
+
+func campaignStatusRank(status string) int {
+	switch strings.ToLower(status) {
+	case "pending":
+		return 0
+	case "sent":
+		return 1
+	case "delivered":
+		return 2
+	case "read":
+		return 3
+	default:
+		return -1
+	}
+}
+
+func (s *Store) DeleteCampaignRecipient(ctx context.Context, orgID, campaignID, recipientID string) error {
+	_, err := s.campaign(orgID, campaignID).Collection("recipients").Doc(recipientID).Delete(ctx)
+	return err
+}
+
 func (s *Store) Contact(ctx context.Context, orgID, contactID string) (*Contact, error) {
 	snapshot, err := s.contact(orgID, contactID).Get(ctx)
 	if err != nil {

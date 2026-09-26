@@ -153,9 +153,9 @@ function closeDialog() {
           <div class="space-y-2"><Label>Şehir</Label><Input v-model="formData.city" /></div>
           <div class="space-y-2"><Label>İlçe</Label><Input v-model="formData.district" /></div>
           <div class="space-y-2"><Label>Posta kodu</Label><Input v-model="formData.postal_code" /></div>
-          <div class="space-y-2"><Label>Satın alma puanı (0-100)</Label><Input v-model.number="formData.purchase_score" type="number" min="0" max="100" /></div>
+          <div class="space-y-2"><Label>Satın alma puanı (0-100)</Label><Input :model-value="formData.purchase_score" type="number" min="0" max="100" @update:model-value="formData.purchase_score = Number($event)" /></div>
         </div>
-        <div class="space-y-2"><Label>Açık adres</Label><Textarea v-model="formData.address" rows="3" /></div>
+        <div class="space-y-2"><Label>Açık adres</Label><Textarea v-model="formData.address" :rows="3" /></div>
         <div class="flex items-center justify-between rounded-lg border p-3">
           <div><Label>Daha önce satın alım yaptı</Label><p class="text-xs text-muted-foreground">CRM hedef kitle filtrelerinde kullanılır.</p></div>
           <Switch v-model:checked="formData.has_purchased" />

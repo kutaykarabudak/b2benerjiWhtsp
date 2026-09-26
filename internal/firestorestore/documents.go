@@ -111,6 +111,51 @@ type Template struct {
 	Metadata                  map[string]any `firestore:"metadata" json:"metadata,omitempty"`
 }
 
+type Campaign struct {
+	ID                  string     `firestore:"id" json:"id"`
+	OrganizationID      string     `firestore:"organizationId" json:"organization_id"`
+	WhatsAppAccount     string     `firestore:"whatsAppAccount" json:"whatsapp_account"`
+	Name                string     `firestore:"name" json:"name"`
+	TemplateID          string     `firestore:"templateId" json:"template_id"`
+	TemplateName        string     `firestore:"templateName" json:"template_name,omitempty"`
+	HeaderMediaID       string     `firestore:"headerMediaId,omitempty" json:"header_media_id,omitempty"`
+	HeaderMediaFilename string     `firestore:"headerMediaFilename,omitempty" json:"header_media_filename,omitempty"`
+	HeaderMediaMimeType string     `firestore:"headerMediaMimeType,omitempty" json:"header_media_mime_type,omitempty"`
+	HeaderMediaKey      string     `firestore:"headerMediaKey,omitempty" json:"-"`
+	Status              string     `firestore:"status" json:"status"`
+	TotalRecipients     int        `firestore:"totalRecipients" json:"total_recipients"`
+	SentCount           int        `firestore:"sentCount" json:"sent_count"`
+	DeliveredCount      int        `firestore:"deliveredCount" json:"delivered_count"`
+	ReadCount           int        `firestore:"readCount" json:"read_count"`
+	FailedCount         int        `firestore:"failedCount" json:"failed_count"`
+	ScheduledAt         *time.Time `firestore:"scheduledAt,omitempty" json:"scheduled_at,omitempty"`
+	StartedAt           *time.Time `firestore:"startedAt,omitempty" json:"started_at,omitempty"`
+	CompletedAt         *time.Time `firestore:"completedAt,omitempty" json:"completed_at,omitempty"`
+	CreatedByID         string     `firestore:"createdById" json:"created_by_id,omitempty"`
+	UpdatedByID         string     `firestore:"updatedById" json:"updated_by_id,omitempty"`
+	CreatedAt           time.Time  `firestore:"createdAt" json:"created_at"`
+	UpdatedAt           time.Time  `firestore:"updatedAt" json:"updated_at"`
+	DeletedAt           *time.Time `firestore:"deletedAt,omitempty" json:"deleted_at,omitempty"`
+	IsDeleted           bool       `firestore:"isDeleted" json:"-"`
+}
+
+type CampaignRecipient struct {
+	ID                string         `firestore:"id" json:"id"`
+	CampaignID        string         `firestore:"campaignId" json:"campaign_id"`
+	PhoneNumber       string         `firestore:"phoneNumber" json:"phone_number"`
+	RecipientName     string         `firestore:"recipientName,omitempty" json:"recipient_name"`
+	TemplateParams    map[string]any `firestore:"templateParams" json:"template_params"`
+	HeaderParams      map[string]any `firestore:"headerParams" json:"header_params"`
+	Status            string         `firestore:"status" json:"status"`
+	WhatsAppMessageID string         `firestore:"whatsAppMessageId,omitempty" json:"whatsapp_message_id,omitempty"`
+	ErrorMessage      string         `firestore:"errorMessage,omitempty" json:"error_message"`
+	SentAt            *time.Time     `firestore:"sentAt,omitempty" json:"sent_at,omitempty"`
+	DeliveredAt       *time.Time     `firestore:"deliveredAt,omitempty" json:"delivered_at,omitempty"`
+	ReadAt            *time.Time     `firestore:"readAt,omitempty" json:"read_at,omitempty"`
+	CreatedAt         time.Time      `firestore:"createdAt" json:"created_at"`
+	UpdatedAt         time.Time      `firestore:"updatedAt" json:"updated_at"`
+}
+
 type Contact struct {
 	ID                   string         `firestore:"id" json:"id"`
 	OrganizationID       string         `firestore:"organizationId" json:"organization_id"`
