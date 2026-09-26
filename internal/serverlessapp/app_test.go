@@ -721,7 +721,7 @@ func TestSendTemplateWithMediaHeader(t *testing.T) {
 	if string(sender.uploaded) != "fake-png" || sender.template != "image_template" || len(sender.components) == 0 {
 		t.Fatalf("uploaded=%q template=%q components=%+v", sender.uploaded, sender.template, sender.components)
 	}
-	if len(store.messages) != 1 || store.messages[0].MediaURL != "media-1" || store.messages[0].MediaFilename != "header.png" {
+	if len(store.messages) != 1 || store.messages[0].Content != "Merhaba" || store.messages[0].MediaURL != "media-1" || store.messages[0].MediaFilename != "header.png" {
 		t.Fatalf("messages=%+v", store.messages)
 	}
 }
@@ -730,7 +730,7 @@ func TestCampaignMessageIsPersistedInChat(t *testing.T) {
 	app, store := testApp(t)
 	now := app.now().UTC()
 	campaign := &firestorestore.Campaign{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "Duyuru", WhatsAppAccount: "main"}
-	template := &firestorestore.Template{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "duyuru", DisplayName: "Duyuru", Status: "APPROVED"}
+	template := &firestorestore.Template{ID: uuid.NewString(), OrganizationID: store.user.OrganizationID, Name: "duyuru", DisplayName: "Duyuru", BodyContent: "Merhaba {{name}}", Status: "APPROVED"}
 	recipient := &firestorestore.CampaignRecipient{ID: uuid.NewString(), CampaignID: campaign.ID, PhoneNumber: "+905551112233", RecipientName: "Kampanya Kişisi", TemplateParams: map[string]any{"name": "Kampanya Kişisi"}}
 
 	if err := app.saveCampaignChatMessage(context.Background(), store.user.OrganizationID, store.user.ID, "main", campaign, template, recipient, "wamid.campaign-1", now); err != nil {
@@ -746,7 +746,7 @@ func TestCampaignMessageIsPersistedInChat(t *testing.T) {
 	if message.ContactID != store.contacts[0].ID || message.MessageType != "template" || message.ExternalID != "wamid.campaign-1" {
 		t.Fatalf("message=%+v", message)
 	}
-	if message.Metadata["campaign_id"] != campaign.ID || store.contacts[0].LastMessagePreview != "[Template: Duyuru]" {
+	if message.Metadata["campaign_id"] != campaign.ID || message.Content != "Merhaba Kampanya Kişisi" || store.contacts[0].LastMessagePreview != "Merhaba Kampanya Kişisi" {
 		t.Fatalf("message=%+v contact=%+v", message, store.contacts[0])
 	}
 }

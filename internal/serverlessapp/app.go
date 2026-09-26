@@ -25,6 +25,7 @@ import (
 	"github.com/shridarpatil/whatomate/internal/firestorestore"
 	"github.com/shridarpatil/whatomate/internal/middleware"
 	"github.com/shridarpatil/whatomate/internal/storage"
+	"github.com/shridarpatil/whatomate/internal/templateutil"
 	"github.com/shridarpatil/whatomate/pkg/whatsapp"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/crypto/bcrypt"
@@ -1358,10 +1359,14 @@ func (a *App) SendTemplate(ctx *fasthttp.RequestCtx) {
 	for key, value := range request.TemplateParams {
 		params[key] = value
 	}
+	renderedContent := templateutil.ReplaceWithStringParams(template.BodyContent, request.TemplateParams)
+	if strings.TrimSpace(renderedContent) == "" {
+		renderedContent = firstNonEmpty(template.DisplayName, template.Name)
+	}
 	message := firestorestore.Message{
 		ID: uuid.NewString(), OrganizationID: orgID, ContactID: contact.ID,
 		WhatsAppAccount: account.Name, ChannelType: contact.ChannelType, ExternalID: externalID,
-		Direction: "outgoing", MessageType: "template", Content: "[Template: " + firstNonEmpty(template.DisplayName, template.Name) + "]",
+		Direction: "outgoing", MessageType: "template", Content: renderedContent,
 		TemplateName: template.Name, TemplateParams: params, Status: "sent", SentByUserID: claims.UserID.String(),
 		Metadata: map[string]any{}, CreatedAt: now, UpdatedAt: now,
 	}

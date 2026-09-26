@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	appcrypto "github.com/shridarpatil/whatomate/internal/crypto"
 	"github.com/shridarpatil/whatomate/internal/firestorestore"
+	"github.com/shridarpatil/whatomate/internal/templateutil"
 	"github.com/shridarpatil/whatomate/pkg/whatsapp"
 	"github.com/valyala/fasthttp"
 )
@@ -601,7 +602,10 @@ func (a *App) saveCampaignChatMessage(ctx context.Context, orgID, userID, accoun
 	} else if err != nil {
 		return err
 	}
-	content := "[Template: " + firstNonEmpty(template.DisplayName, template.Name) + "]"
+	content := templateutil.ReplaceWithJSONBParams(template.BodyContent, template.BodyContent, recipient.TemplateParams)
+	if strings.TrimSpace(content) == "" {
+		content = firstNonEmpty(template.DisplayName, template.Name)
+	}
 	message := firestorestore.Message{
 		ID: uuid.NewString(), OrganizationID: orgID, ContactID: contact.ID,
 		WhatsAppAccount: accountName, ChannelType: "whatsapp", ExternalID: externalID,
