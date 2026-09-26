@@ -2,7 +2,11 @@
 
 Bu dosya başka bir workspace/oturumda projeye kaldığımız yerden devam etmek için hazırlanmıştır.
 
-Son güncelleme: 2026-06-30
+Son güncelleme: 2026-09-26
+
+> Bu dosyanın devamında tarihsel çalışma notları bulunur. Güncel canlı mimari
+> Firestore tabanlıdır; dağıtım için `docs/GCP_DEPLOYMENT_TR.md` ve
+> `docs/FIRESTORE_MIGRATION_TR.md` esas alınmalıdır.
 
 ## 1. Proje özeti
 
@@ -28,42 +32,25 @@ GCP:
 - Project ID: `b2benerji-whatsapp-2026`
 - Project number: `702123018184`
 - Region: `europe-west1`
-- Cloud Run service: `whatomate`
+- Cloud Run service: `whatomate-firestore-preview`
 - Firebase Hosting site: `b2benerji-whatsapp-2026`
-- Cloud SQL: `whatomate-db`
-- PostgreSQL sürümü: 15
-- DB adı / kullanıcısı: `whatomate`
-- Redis: `whatomate-redis`
-- Redis host: `10.164.75.163`
-- VPC: `whatomate-vpc`
-- Subnet: `whatomate-europe-west1`
-- Runtime service account: `whatomate-runtime@b2benerji-whatsapp-2026.iam.gserviceaccount.com`
+- Firestore: `(default)`, Native, `europe-west1`
+- Cloud SQL / Redis / VPC connector: kullanılmıyor
+- Runtime service account: `whatomate-firestore-preview@b2benerji-whatsapp-2026.iam.gserviceaccount.com`
 - Medya bucket (GCS, S3-uyumlu XML interop ile): `b2benerji-whatsapp-2026-media` (europe-west1). Sohbet/kampanya medyası buraya yazılır — yerel disk Cloud Run'da redeploy/restart/instance değişiminde sıfırlanır, bu yüzden `storage.type=s3` zorunlu (2026-08-10'da eklendi, bkz. `internal/handlers/media.go`).
 
 Secret Manager içindeki secret adları:
 
-- `whatomate-admin-password`
-- `whatomate-db-password`
 - `whatomate-encryption-key`
 - `whatomate-jwt-secret`
-- `whatomate-redis-password`
 - `whatomate-media-s3-key` / `whatomate-media-s3-secret` — medya bucket'ının HMAC anahtarı (runtime servis hesabına ait)
 
-Admin:
-
-- Admin e-posta: `b2benerji@gmail.com`
-- Admin şifresi repo içinde yoktur. Gerekirse şu komutla GCP Secret Manager’dan okunur:
-
-```bash
-gcloud secrets versions access latest \
-  --secret=whatomate-admin-password \
-  --project=b2benerji-whatsapp-2026
-```
+Admin kimlik bilgileri Firestore'a taşınmıştır; çalışma zamanı Secret Manager'dan
+bir başlangıç admin parolası okumaz.
 
 Önemli güvenlik notu:
 
-- `deploy/cloudrun.env` gerçek ortam değerleri içerir ve `.gitignore` içindedir. Commit edilmemelidir.
-- `deploy/cloudrun.env.example` sadece örnek placeholder değerler içerir ve commit edilebilir.
+- Secret değerleri ve yerel `.env` dosyaları commit edilmemelidir.
 
 ## 3. Bugüne kadar yapılan işler
 
@@ -306,8 +293,8 @@ Hedef:
 
 1. Sohbette paylaşılan geçici test token rotate edilmeli.
 2. Production için token asla chat, README veya repo dosyalarına yazılmamalı.
-3. `deploy/cloudrun.env` lokal/secret amaçlıdır; commit edilmemeli.
-4. Admin şifresi sadece Secret Manager üzerinden yönetilmeli.
+3. Yerel `.env` dosyaları commit edilmemeli.
+4. Kullanıcı parolaları yalnızca uygulamanın kimlik doğrulama akışıyla yönetilmeli.
 5. Eğer repo public kalacaksa:
    - `.gitignore` tekrar kontrol edilmeli.
    - Secret taraması yapılmalı.
@@ -331,13 +318,8 @@ gcloud config set project b2benerji-whatsapp-2026
 firebase login
 ```
 
-Yerel secret/env dosyası gerekiyorsa:
-
-```bash
-cp deploy/cloudrun.env.example deploy/cloudrun.env
-```
-
-Not: Gerçek değerler Secret Manager’dan veya güvenli kaynaktan doldurulmalı; repo içine yazılmamalı.
+Dağıtım komutları ve gerekli secret listesi için `docs/GCP_DEPLOYMENT_TR.md`
+kullanılmalı. Gerçek secret değerleri repo içine yazılmamalı.
 
 ## 7. Son doğrulamalar
 
@@ -353,15 +335,14 @@ Bu bağlam dosyası oluşturulmadan önce bilinen başarılı kontroller:
 
 Commit’e girmemesi gerekenler:
 
-- `deploy/cloudrun.env`
+- Yerel `.env` dosyaları
 - Gerçek WhatsApp access token
-- Admin şifresi
-- DB/Redis/JWT/encryption secret değerleri
+- Kullanıcı parolaları
+- JWT/encryption/HMAC secret değerleri
 
 Commit’e girebilecekler:
 
 - Kod değişiklikleri
 - Deploy scriptleri
-- Example env dosyası
 - GCP deploy dokümanı
 - Bu çalışma bağlamı dosyası

@@ -1,100 +1,77 @@
-# Google Cloud Run + Firebase Hosting kurulumu
+# Google Cloud Run + Firestore dağıtımı
 
-Bu dağıtımda dashboard, API ve WebSocket aynı `PROJECT_ID.web.app` origin'i üzerinden çalışır. Firebase Hosting istekleri `europe-west1` bölgesindeki `whatomate` Cloud Run servisine yönlendirir.
+Canlı B2B Enerji WhatsApp paneli sunucusuz ve düşük maliyetli çalışır:
 
-## Mimari
+- Firebase Hosting, paneli ve API/webhook yönlendirmesini sunar.
+- `whatomate-firestore-preview` Cloud Run servisi API ile gömülü paneli çalıştırır.
+- Firestore Native kalıcı uygulama verisini tutar.
+- Cloud Storage sohbet ve kampanya medyasını tutar.
+- Secret Manager yalnızca çalışma zamanında gereken anahtarları tutar.
 
-- Firebase Hosting: herkese verilecek `web.app` adresi
-- Cloud Run: Go API, gömülü Vue dashboard ve tek kampanya worker'ı
-- Cloud SQL for PostgreSQL: kalıcı uygulama verisi
-- Redis/Memorystore: kuyruk, rate limit, token rotation ve gerçek zamanlı olaylar
-- Secret Manager: uygulama şifreleme anahtarı, JWT, DB/Admin parolaları
-- Meta Cloud API: `/api/webhook` callback'i
+Cloud SQL, PostgreSQL, Redis, Memorystore, VPC connector ve sürekli açık Cloud Run
+instance'ı bu mimarinin parçası değildir.
 
-Firebase Hosting yalnızca `__session` isimli cookie'yi Cloud Run'a ilettiği için proje, Whatomate'ın iki imzalı JWT'sini bu HttpOnly cookie içinde taşıyacak şekilde uyarlanmıştır. Standart self-host kurulumundaki cookie davranışı `cookie.firebase_hosting=false` iken değişmez.
+## Gerekli secret'lar
 
-## 1. Ön koşullar
+Çalışan revizyon yalnızca aşağıdaki secret'ları kullanır:
 
-VS Code terminalinde şu araçlarla giriş yapın:
+- `whatomate-encryption-key`
+- `whatomate-jwt-secret`
+- `whatomate-media-s3-key`
+- `whatomate-media-s3-secret`
 
-```bash
-gcloud auth login
-gcloud auth application-default login
-firebase login
-```
+Uygulama yönetici parolasını Secret Manager'dan okumaz. Kullanıcı ve parola özeti
+Firestore'a aktarılmıştır. SQL ve Redis parolaları artık oluşturulmamalıdır.
 
-Google Cloud projesinde faturalandırma açık olmalıdır.
-
-## 2. PostgreSQL ve Redis
-
-Cloud SQL üzerinde PostgreSQL instance, `whatomate` veritabanı ve `whatomate` kullanıcısı oluşturun. Instance connection name değerini not edin:
-
-```text
-PROJECT_ID:europe-west1:whatomate-db
-```
-
-Redis için aynı bölgede Memorystore kullanabilirsiniz. Private IP kullanıyorsanız Cloud Run Direct VPC için network ve subnet adlarını deployment env dosyasına yazın. Alternatif olarak TLS destekli erişilebilir bir Redis servisi kullanılabilir.
-
-## 3. Secret'ları oluşturun
-
-Anahtarlar komut satırı argümanına, dosyaya veya GitHub'a yazılmaz. Script değerleri gizli terminal girişiyle doğrudan Secret Manager'a yollar:
+Temel uygulama anahtarlarını güvenli terminal girdisiyle hazırlamak için:
 
 ```bash
-PROJECT_ID=your-project scripts/prepare-secrets.sh
+PROJECT_ID=b2benerji-whatsapp-2026 scripts/prepare-secrets.sh
 ```
 
-`whatomate-db-password`, Cloud SQL kullanıcısına verdiğiniz parola ile aynı olmalıdır. İlk admin parolasını kaybetmeyin.
+Medya HMAC anahtarları mevcut bucket/runtime hesabıyla birlikte korunmalıdır.
 
-## 4. Cloud Run dağıtımı
+## İmaj ve Cloud Run dağıtımı
+
+PowerShell'de önce imajı oluşturun:
+
+```powershell
+.\scripts\build-firestore-preview.ps1 `
+  -Tag "release-$(Get-Date -Format yyyyMMdd-HHmm)" `
+  -Execute `
+  -ConfirmProject b2benerji-whatsapp-2026
+```
+
+Oluşan imaj URI'sini gözden geçirip servise dağıtın:
+
+```powershell
+.\scripts\deploy-firestore-preview.ps1 `
+  -Image "europe-west1-docker.pkg.dev/b2benerji-whatsapp-2026/whatomate/IMAGE:TAG" `
+  -Execute `
+  -ConfirmProject b2benerji-whatsapp-2026
+```
+
+Dağıtım scripti maliyet korumalarını uygular: `min-instances=0`, `max-instances=1`,
+request CPU, 512 MiB bellek, Cloud SQL bağlantısı yok ve VPC connector yok.
+
+## Firebase Hosting
+
+Cloud Run revizyonu doğrulandıktan sonra Hosting dağıtımı yapılır:
 
 ```bash
-cp deploy/cloudrun.env.example deploy/cloudrun.env
+scripts/deploy-firebase.sh b2benerji-whatsapp-2026
 ```
 
-`deploy/cloudrun.env` dosyasını doldurun. Bu dosya `.gitignore` kapsamındadır. Ardından:
+Canlı adres `https://b2benerji-whatsapp-2026.web.app` olarak kalır. Meta callback
+adresi de değişmez: `https://b2benerji-whatsapp-2026.web.app/api/webhook`.
 
-```bash
-scripts/deploy-gcp.sh
-```
+## Güvenlik ve maliyet kontrolleri
 
-Cloud Run minimum 1 instance ve CPU throttling kapalı olarak kurulur; bunun nedeni kampanya worker'ının HTTP isteği yokken de kuyruk tüketmesidir.
+- Secret değerlerini komut satırına, env dosyasına veya Git'e yazmayın.
+- `whatomate-encryption-key` ve medya HMAC anahtarlarını doğrulamadan silmeyin.
+- Yeni revizyonu smoke test etmeden Hosting trafiğini değiştirmeyin.
+- Cloud Run minimum instance değerini sıfırda, maksimum instance değerini birde tutun.
+- Firestore sorgularında cursor ve limit kullanın; toplu sınırsız tarama eklemeyin.
+- 50 TRY bütçe uyarısı harcamayı otomatik durdurmaz; faturalandırma ekranı ayrıca izlenmelidir.
 
-## 5. Firebase Hosting
-
-`firebase.json`, servis adı `whatomate` ve bölge `europe-west1` kabul eder:
-
-```bash
-scripts/deploy-firebase.sh your-project-id
-```
-
-Dashboard adresi `https://your-project-id.web.app` olur. Firebase'in Cloud Run proxy'si WebSocket isteklerini 60 saniyede sonlandırabilir; mevcut istemci otomatik bağlanır ve kaçırılan veriyi yeniler.
-
-## 6. Meta hesabını bağlayın
-
-Dashboard'a admin hesabıyla giriş yapıp Settings > Accounts bölümünden aşağıdaki değerleri ekleyin:
-
-- Meta App ID
-- Phone Number ID
-- WhatsApp Business Account ID
-- System User Access Token
-- Meta App Secret
-
-Access token ve App Secret, Secret Manager'daki `whatomate-encryption-key` kullanılarak PostgreSQL içinde AES-256-GCM ile şifrelenir ve API cevaplarında geri döndürülmez.
-
-Meta webhook ayarları:
-
-```text
-Callback URL: https://PROJECT_ID.web.app/api/webhook
-Verify token: Dashboard'daki WhatsApp account kaydında gösterilen değer
-```
-
-Webhook'ta en az `messages` alanına abone olun. Üretime çıkmadan önce test kişileriyle onaylı bir template kampanyası çalıştırın.
-
-## Güvenlik notları
-
-- `config.toml`, `deploy/cloudrun.env` ve `.env` dosyalarını commit etmeyin.
-- Meta tokenlarını frontend `VITE_*` değişkenlerine koymayın.
-- Secret değerlerini Cloud Run normal environment variable olarak değil Secret Manager referansı olarak bağlayın.
-- `whatomate-encryption-key` kaybolursa veritabanındaki Meta tokenları çözülemez; güvenli yedek ve kontrollü rotation planı gerekir.
-- Webhook signature doğrulaması için her WhatsApp account kaydına Meta App Secret ekleyin.
-- Yalnızca açık rıza/opt-in alınmış kişilere onaylı template gönderin ve opt-out taleplerini uygulayın.
+Geçiş ve doğrulama ayrıntıları için `docs/FIRESTORE_MIGRATION_TR.md` dosyasına bakın.
