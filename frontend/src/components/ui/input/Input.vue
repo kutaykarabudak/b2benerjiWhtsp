@@ -8,15 +8,16 @@ const props = defineProps<{
   placeholder?: string
   disabled?: boolean
   class?: string
+  modelModifiers?: { number?: boolean }
 }>()
 
 const emit = defineEmits<{
-  'update:modelValue': [value: string]
+  'update:modelValue': [value: any]
 }>()
 
 const modelValue = computed({
   get: () => props.modelValue?.toString() ?? '',
-  set: (value) => emit('update:modelValue', value)
+  set: (value) => emit('update:modelValue', props.modelModifiers?.number ? Number(value) : value)
 })
 </script>
 

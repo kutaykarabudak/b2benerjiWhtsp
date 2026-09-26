@@ -2015,20 +2015,32 @@ func (a *App) parseToken(raw string) (*middleware.JWTClaims, error) {
 func (a *App) setCookies(ctx *fasthttp.RequestCtx, access, refresh string) {
 	secure := a.config.Cookie.Secure || a.config.App.Environment == "production"
 	setCookie(ctx, middleware.FirebaseSessionCookieName, middleware.EncodeFirebaseSession(access, refresh), secure, true, a.config.JWT.RefreshExpiryDays*86400)
-	setCookie(ctx, "whm_access", access, secure, true, a.config.JWT.AccessExpiryMins*60)
-	setCookie(ctx, "whm_refresh", refresh, secure, true, a.config.JWT.RefreshExpiryDays*86400)
+	if a.config.Cookie.FirebaseHosting {
+		// Firebase Hosting forwards only __session. Expire legacy duplicates so
+		// Facebook SDK cookies cannot push the request headers over proxy limits.
+		expireCookie(ctx, "whm_access")
+		expireCookie(ctx, "whm_refresh")
+	} else {
+		setCookie(ctx, "whm_access", access, secure, true, a.config.JWT.AccessExpiryMins*60)
+		setCookie(ctx, "whm_refresh", refresh, secure, true, a.config.JWT.RefreshExpiryDays*86400)
+	}
 	setCookie(ctx, "whm_csrf", randomID(), secure, false, a.config.JWT.RefreshExpiryDays*86400)
 }
 
 func (a *App) clearCookies(ctx *fasthttp.RequestCtx) {
 	for _, name := range []string{middleware.FirebaseSessionCookieName, "whm_access", "whm_refresh", "whm_csrf"} {
-		cookie := fasthttp.AcquireCookie()
-		cookie.SetKey(name)
-		cookie.SetPath("/")
-		cookie.SetExpire(time.Unix(1, 0))
-		ctx.Response.Header.SetCookie(cookie)
-		fasthttp.ReleaseCookie(cookie)
+		expireCookie(ctx, name)
 	}
+}
+
+func expireCookie(ctx *fasthttp.RequestCtx, name string) {
+	cookie := fasthttp.AcquireCookie()
+	defer fasthttp.ReleaseCookie(cookie)
+	cookie.SetKey(name)
+	cookie.SetPath("/")
+	cookie.SetExpire(time.Unix(1, 0))
+	cookie.SetMaxAge(-1)
+	ctx.Response.Header.SetCookie(cookie)
 }
 
 func setCookie(ctx *fasthttp.RequestCtx, name, value string, secure, httpOnly bool, maxAge int) {

@@ -124,9 +124,23 @@ const serverlessCoreSections: NavSection[] = [
   },
   {
     label: 'nav.sectionOther',
-    permissions: ['contacts'],
+    permissions: ['templates', 'settings.general', 'accounts', 'contacts'],
     pinBottom: true,
-    items: [{ name: 'nav.contacts', path: '/settings/contacts', icon: Contact, permission: 'contacts' }]
+    items: [
+      {
+        name: 'nav.otherTasks',
+        path: '/settings',
+        icon: Settings,
+        permission: 'settings.general',
+        childPermissions: ['templates', 'settings.general', 'accounts', 'contacts'],
+        children: [
+          { name: 'nav.templates', path: '/templates', icon: FileText, permission: 'templates' },
+          { name: 'nav.general', path: '/settings', icon: Settings, permission: 'settings.general' },
+          { name: 'nav.accounts', path: '/settings/accounts', icon: Users, permission: 'accounts' },
+          { name: 'nav.contacts', path: '/settings/contacts', icon: Contact, permission: 'contacts' }
+        ]
+      }
+    ]
   }
 ]
 

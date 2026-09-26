@@ -88,7 +88,29 @@ func main() {
 	r.POST("/api/contacts/{id}/messages", app.SendMessage)
 	r.POST("/api/contacts/{id}/messages/{message_id}/reaction", app.SendReaction)
 	r.GET("/api/accounts", app.ListAccounts)
+	r.POST("/api/accounts", app.CreateAccount)
+	r.GET("/api/accounts/{id}", app.GetAccount)
+	r.PUT("/api/accounts/{id}", app.UpdateAccount)
+	r.DELETE("/api/accounts/{id}", app.DeleteAccount)
+	r.POST("/api/accounts/{id}/test", app.TestAccountConnection)
+	r.POST("/api/accounts/{id}/subscribe", app.SubscribeAccount)
+	r.GET("/api/accounts/{id}/business_profile", app.GetBusinessProfile)
+	r.PUT("/api/accounts/{id}/business_profile", app.UpdateBusinessProfile)
+	r.POST("/api/accounts/{id}/business_profile/photo", app.UpdateBusinessProfilePhoto)
+	r.GET("/api/embedded-signup/config", app.GetEmbeddedSignupConfig)
+	r.POST("/api/accounts/exchange-token", app.ExchangeAccountToken)
 	r.GET("/api/templates", app.ListTemplates)
+	r.POST("/api/templates", app.CreateTemplate)
+	r.GET("/api/templates/{id}", app.GetTemplate)
+	r.PUT("/api/templates/{id}", app.UpdateTemplate)
+	r.DELETE("/api/templates/{id}", app.DeleteTemplate)
+	r.POST("/api/templates/sync", app.SyncTemplates)
+	r.POST("/api/templates/{id}/publish", app.PublishTemplate)
+	r.POST("/api/templates/upload-media", app.UploadTemplateMedia)
+	r.GET("/api/org/settings", app.GetOrganizationSettings)
+	r.PUT("/api/org/settings", app.UpdateOrganizationSettings)
+	r.PUT("/api/me/settings", app.UpdateCurrentUserSettings)
+	r.GET("/api/audit-logs", app.ListAuditLogs)
 	r.POST("/api/messages/template", app.SendTemplate)
 	r.POST("/api/messages/media", app.SendMediaMessage)
 	r.GET("/api/media/{message_id}", app.ServeMedia)
@@ -106,6 +128,9 @@ func main() {
 		ReadTimeout:        time.Duration(cfg.Server.ReadTimeout) * time.Second,
 		WriteTimeout:       time.Duration(cfg.Server.WriteTimeout) * time.Second,
 		MaxRequestBodySize: 32 << 20,
+		// Meta/Facebook SDK cookies plus session JWTs exceed fasthttp's 4 KiB
+		// default header buffer and otherwise surface as HTTP 431.
+		ReadBufferSize: 64 << 10,
 	}
 
 	listenAddress := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

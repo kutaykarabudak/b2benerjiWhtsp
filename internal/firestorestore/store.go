@@ -412,6 +412,70 @@ func (s *Store) PutWhatsAppAccount(ctx context.Context, account WhatsAppAccount)
 	})
 }
 
+func (s *Store) WhatsAppAccount(ctx context.Context, orgID, accountID string) (*WhatsAppAccount, error) {
+	snapshot, err := s.account(orgID, accountID).Get(ctx)
+	if firestoreIsNotFound(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var account WhatsAppAccount
+	if err := snapshot.DataTo(&account); err != nil {
+		return nil, err
+	}
+	if account.IsDeleted {
+		return nil, ErrNotFound
+	}
+	return &account, nil
+}
+
+func (s *Store) ReplaceWhatsAppAccount(ctx context.Context, previous, account WhatsAppAccount) error {
+	if account.ID == "" || account.OrganizationID == "" || account.Name == "" || account.PhoneID == "" {
+		return ErrInvalidArgument
+	}
+	return s.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		if err := tx.Set(s.account(account.OrganizationID, account.ID), account); err != nil {
+			return err
+		}
+		if previous.PhoneID != "" && previous.PhoneID != account.PhoneID {
+			if err := tx.Delete(s.root().Collection("accountPhones").Doc(hash(previous.PhoneID))); err != nil {
+				return err
+			}
+		}
+		if err := tx.Set(s.root().Collection("accountPhones").Doc(hash(account.PhoneID)), map[string]any{"accountId": account.ID, "organizationId": account.OrganizationID, "phoneId": account.PhoneID}); err != nil {
+			return err
+		}
+		if previous.WebhookVerifyToken != "" && previous.WebhookVerifyToken != account.WebhookVerifyToken {
+			if err := tx.Delete(s.root().Collection("webhookTokens").Doc(hash(previous.WebhookVerifyToken))); err != nil {
+				return err
+			}
+		}
+		if account.WebhookVerifyToken != "" {
+			return tx.Set(s.root().Collection("webhookTokens").Doc(hash(account.WebhookVerifyToken)), map[string]any{"accountId": account.ID, "organizationId": account.OrganizationID})
+		}
+		return nil
+	})
+}
+
+func (s *Store) DeleteWhatsAppAccount(ctx context.Context, account WhatsAppAccount, now time.Time) error {
+	account.IsDeleted, account.DeletedAt, account.UpdatedAt = true, &now, now
+	return s.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		if err := tx.Set(s.account(account.OrganizationID, account.ID), account); err != nil {
+			return err
+		}
+		if account.PhoneID != "" {
+			if err := tx.Delete(s.root().Collection("accountPhones").Doc(hash(account.PhoneID))); err != nil {
+				return err
+			}
+		}
+		if account.WebhookVerifyToken != "" {
+			return tx.Delete(s.root().Collection("webhookTokens").Doc(hash(account.WebhookVerifyToken)))
+		}
+		return nil
+	})
+}
+
 func (s *Store) ListWhatsAppAccounts(ctx context.Context, orgID string) ([]WhatsAppAccount, error) {
 	it := s.organization(orgID).Collection("whatsAppAccounts").Where("isDeleted", "==", false).Documents(ctx)
 	defer it.Stop()
@@ -618,6 +682,25 @@ func (s *Store) Template(ctx context.Context, orgID, idOrName string) (*Template
 		}
 	}
 	return nil, ErrNotFound
+}
+
+func (s *Store) PutTemplate(ctx context.Context, template Template) error {
+	if template.ID == "" || template.OrganizationID == "" || template.Name == "" {
+		return ErrInvalidArgument
+	}
+	_, err := s.template(template.OrganizationID, template.ID).Set(ctx, template)
+	return err
+}
+
+func (s *Store) DeleteTemplate(ctx context.Context, template Template, deletedAt time.Time) error {
+	if template.ID == "" || template.OrganizationID == "" {
+		return ErrInvalidArgument
+	}
+	template.IsDeleted = true
+	template.DeletedAt = &deletedAt
+	template.UpdatedAt = deletedAt
+	_, err := s.template(template.OrganizationID, template.ID).Set(ctx, template)
+	return err
 }
 
 func (s *Store) Contact(ctx context.Context, orgID, contactID string) (*Contact, error) {
