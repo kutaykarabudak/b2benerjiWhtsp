@@ -3,7 +3,7 @@ import { useTransfersStore } from '@/stores/transfers'
 import { useCallingStore } from '@/stores/calling'
 import { useAuthStore } from '@/stores/auth'
 import { useNotesStore } from '@/stores/notes'
-import { contactsService } from '@/services/api'
+import { api, contactsService } from '@/services/api'
 import { toast } from 'vue-sonner'
 import router from '@/router'
 
@@ -103,6 +103,9 @@ class WebSocketService {
   private hasConnectedBefore = false
   private campaignStatsCallbacks: ((payload: any) => void)[] = []
   private getTokenFn: (() => Promise<string | null>) | null = null
+  private pollingInterval: number | null = null
+  private pollingCursor: string | null = null
+  private pollInFlight = false
 
   async connect(getToken?: () => Promise<string | null>) {
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -117,6 +120,7 @@ class WebSocketService {
     // Get a fresh short-lived WS token
     const token = this.getTokenFn ? await this.getTokenFn() : null
     if (!token) {
+      this.startPolling()
       return
     }
 
@@ -129,6 +133,7 @@ class WebSocketService {
       this.ws = new WebSocket(url)
 
       this.ws.onopen = () => {
+        this.stopPolling()
         // Send auth message as the first message (token not in URL for security)
         this.send({ type: WS_TYPE_AUTH, payload: { token } })
 
@@ -164,12 +169,47 @@ class WebSocketService {
 
   disconnect() {
     this.stopPing()
+    this.stopPolling()
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
     this.isConnected = false
     this.reconnectAttempts = this.maxReconnectAttempts // Prevent reconnect
+  }
+
+  private startPolling() {
+    if (this.pollingInterval !== null) return
+    const poll = async () => {
+      // Background tabs do not need realtime refresh. Skipping them avoids one
+      // empty Firestore query per interval and keeps the free read quota ample.
+      if (document.visibilityState === 'hidden') return
+      if (this.pollInFlight) return
+      this.pollInFlight = true
+      try {
+        const response = await api.get('/events', {
+          params: this.pollingCursor ? { cursor: this.pollingCursor } : undefined
+        })
+        const data = response.data.data || response.data
+        for (const event of data.events || []) {
+          this.handleMessage(JSON.stringify({ type: event.type, payload: event.payload }))
+        }
+        if (data.next_cursor) this.pollingCursor = data.next_cursor
+      } catch {
+        // A transient poll failure is retried on the next interval.
+      } finally {
+        this.pollInFlight = false
+      }
+    }
+    void poll()
+    this.pollingInterval = window.setInterval(poll, 15000)
+  }
+
+  private stopPolling() {
+    if (this.pollingInterval !== null) {
+      window.clearInterval(this.pollingInterval)
+      this.pollingInterval = null
+    }
   }
 
   private handleMessage(data: string) {

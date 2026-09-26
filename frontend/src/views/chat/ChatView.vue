@@ -630,6 +630,9 @@ async function selectContact(id: string) {
     ])
     if (sessionResult) {
       contactSessionData.value = sessionResult.data.data || sessionResult.data
+	  if (contactSessionData.value?.active_transfer) {
+		transfersStore.addTransfer(contactSessionData.value.active_transfer)
+	  }
       if (contactSessionData.value?.panel_config?.sections?.length > 0) {
         isInfoPanelOpen.value = true
       }

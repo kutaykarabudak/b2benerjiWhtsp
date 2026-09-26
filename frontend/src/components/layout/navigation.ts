@@ -43,7 +43,7 @@ export interface NavSection {
   pinBottom?: boolean
 }
 
-export const navigationSections: NavSection[] = [
+const fullNavigationSections: NavSection[] = [
   {
     label: 'nav.sectionFocus',
     permissions: ['chat', 'campaigns', 'settings.chatbot', 'chatbot.keywords', 'flows.chatbot', 'chatbot.ai', 'transfers'],
@@ -115,6 +115,24 @@ export const navigationSections: NavSection[] = [
     ]
   }
 ]
+
+const serverlessCoreSections: NavSection[] = [
+  {
+    label: 'nav.sectionFocus',
+    permissions: ['chat'],
+    items: [{ name: 'nav.chat', path: '/chat', icon: MessageSquare, permission: 'chat' }]
+  },
+  {
+    label: 'nav.sectionOther',
+    permissions: ['contacts'],
+    pinBottom: true,
+    items: [{ name: 'nav.contacts', path: '/settings/contacts', icon: Contact, permission: 'contacts' }]
+  }
+]
+
+export const navigationSections: NavSection[] = import.meta.env.VITE_SERVERLESS_CORE === 'true'
+  ? serverlessCoreSections
+  : fullNavigationSections
 
 // Flat list for backward compatibility (used by AppLayout computed)
 export const navigationItems: NavItem[] = navigationSections.flatMap(s => s.items)

@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // The browser never talks to Firestore directly. Cloud Run uses its service
+    // account through the Admin SDK and therefore bypasses these client rules.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

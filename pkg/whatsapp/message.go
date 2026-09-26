@@ -48,6 +48,24 @@ func (c *Client) SendTextMessage(ctx context.Context, account *Account, rcpt Rec
 	return messageID, nil
 }
 
+// SendReaction adds or removes the current business user's reaction to a message.
+// Meta removes the reaction when emoji is an empty string.
+func (c *Client) SendReaction(ctx context.Context, account *Account, rcpt Recipient, messageID, emoji string) error {
+	if messageID == "" {
+		return fmt.Errorf("message id is required")
+	}
+	payload := map[string]any{
+		"messaging_product": "whatsapp", "recipient_type": "individual", "type": "reaction",
+		"reaction": map[string]any{"message_id": messageID, "emoji": emoji},
+	}
+	rcpt.SetOnPayload(payload)
+	_, err := c.doRequest(ctx, "POST", c.buildMessagesURL(account), payload, account.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to send reaction: %w", err)
+	}
+	return nil
+}
+
 // SendLocationMessage sends a location pin (latitude/longitude, optional label).
 func (c *Client) SendLocationMessage(ctx context.Context, account *Account, rcpt Recipient, latitude, longitude float64, name, address string) (string, error) {
 	loc := map[string]any{
@@ -373,7 +391,7 @@ func (c *Client) SendProductMessage(ctx context.Context, account *Account, rcpt 
 			"text": bodyText,
 		},
 		"action": map[string]any{
-			"catalog_id":         catalogID,
+			"catalog_id":          catalogID,
 			"product_retailer_id": productRetailerID,
 		},
 	}

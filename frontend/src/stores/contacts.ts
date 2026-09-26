@@ -109,6 +109,7 @@ export const useContactsStore = defineStore('contacts', () => {
   const contactsPage = ref(1)
   const contactsLimit = ref(50)
   const contactsTotal = ref(0)
+  const contactsNextCursor = ref<string | null>(null)
   const isLoadingMoreContacts = ref(false)
   const hasMoreContacts = computed(() => contacts.value.length < contactsTotal.value)
 
@@ -138,6 +139,7 @@ export const useContactsStore = defineStore('contacts', () => {
       const data = response.data.data || response.data
       contacts.value = data.contacts || []
       contactsTotal.value = data.total ?? contacts.value.length
+      contactsNextCursor.value = data.next_cursor || null
       contactsPage.value = 1
     } catch (error) {
       console.error('Failed to fetch contacts:', error)
@@ -156,6 +158,7 @@ export const useContactsStore = defineStore('contacts', () => {
       const search = normalizeContactSearch(searchQuery.value) || undefined
       const response = await contactsService.list({
         page: nextPage,
+        cursor: contactsNextCursor.value || undefined,
         limit: contactsLimit.value,
         tags: tagsParam,
         search
@@ -171,6 +174,7 @@ export const useContactsStore = defineStore('contacts', () => {
         contactsPage.value = nextPage
       }
       contactsTotal.value = data.total ?? contactsTotal.value
+      contactsNextCursor.value = data.next_cursor || null
     } catch (error) {
       console.error('Failed to load more contacts:', error)
     } finally {

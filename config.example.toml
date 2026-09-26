@@ -29,6 +29,13 @@ max_open_conns = 25
 max_idle_conns = 5
 conn_max_lifetime = 300
 
+# Used only by the parallel whatomate-firestore binary. The legacy binary
+# continues to use [database] until the final cutover is explicitly approved.
+[firestore]
+project_id = ""
+database_id = "(default)"
+namespace = "whatomate-v1"
+
 [redis]
 host = "redis"  # Use "localhost" for local development
 port = 6379

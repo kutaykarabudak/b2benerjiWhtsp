@@ -1,0 +1,26 @@
+FROM node:22-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+ENV VITE_SERVERLESS_CORE=true
+RUN npm run build
+
+FROM golang:1.25.3-alpine AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+WORKDIR /app
+RUN apk add --no-cache git ca-certificates
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=frontend-builder /app/frontend/dist/ ./internal/frontend/dist/
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o whatomate-firestore ./cmd/whatomate-firestore
+
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=builder /app/whatomate-firestore ./whatomate-firestore
+COPY --from=builder /app/config.example.toml ./config.toml
+EXPOSE 8080
+ENTRYPOINT ["./whatomate-firestore"]
+CMD ["-config", "config.toml"]

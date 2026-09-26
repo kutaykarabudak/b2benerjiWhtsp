@@ -2,7 +2,7 @@
   "hosting": {
     "public": "firebase-public",
     "ignore": [
-      "firebase.json",
+      "firebase.preview.json",
       "**/.*",
       "**/node_modules/**"
     ],
@@ -16,20 +16,5 @@
         }
       }
     ]
-  },
-  "firestore": {
-    "database": "(default)",
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
-  },
-  "emulators": {
-    "firestore": {
-      "host": "127.0.0.1",
-      "port": 18086
-    },
-    "ui": {
-      "enabled": false
-    },
-    "singleProjectMode": true
   }
 }

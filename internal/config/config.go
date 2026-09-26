@@ -19,6 +19,7 @@ type Config struct {
 	App          AppConfig          `koanf:"app"`
 	Server       ServerConfig       `koanf:"server"`
 	Database     DatabaseConfig     `koanf:"database"`
+	Firestore    FirestoreConfig    `koanf:"firestore"`
 	Redis        RedisConfig        `koanf:"redis"`
 	JWT          JWTConfig          `koanf:"jwt"`
 	WhatsApp     WhatsAppConfig     `koanf:"whatsapp"`
@@ -29,6 +30,16 @@ type Config struct {
 	Cookie       CookieConfig       `koanf:"cookie"`
 	Calling      CallingConfig      `koanf:"calling"`
 	TTS          TTSConfig          `koanf:"tts"`
+}
+
+// FirestoreConfig configures the serverless persistence backend. It lives next
+// to DatabaseConfig while the migration is in progress so the legacy binary
+// can keep using PostgreSQL and the new binary can use Firestore without a
+// risky flag day.
+type FirestoreConfig struct {
+	ProjectID  string `koanf:"project_id"`
+	DatabaseID string `koanf:"database_id"`
+	Namespace  string `koanf:"namespace"`
 }
 
 type TTSConfig struct {
@@ -265,6 +276,12 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Database.ConnMaxLifetime == 0 {
 		cfg.Database.ConnMaxLifetime = 300
+	}
+	if cfg.Firestore.DatabaseID == "" {
+		cfg.Firestore.DatabaseID = "(default)"
+	}
+	if cfg.Firestore.Namespace == "" {
+		cfg.Firestore.Namespace = "whatomate-v1"
 	}
 	if cfg.Redis.Port == 0 {
 		cfg.Redis.Port = 6379

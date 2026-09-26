@@ -76,7 +76,8 @@ const handleLogin = async () => {
     toast.success(t('auth.loginSuccess'))
 
     const redirect = route.query.redirect as string
-    router.push(redirect || '/')
+    const defaultPath = import.meta.env.VITE_SERVERLESS_CORE === 'true' ? '/chat' : '/'
+    router.push(redirect || defaultPath)
   } catch (error: any) {
     const message = error.response?.data?.message || t('auth.invalidCredentials')
     toast.error(message)

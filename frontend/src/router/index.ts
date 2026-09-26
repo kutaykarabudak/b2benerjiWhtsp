@@ -12,6 +12,7 @@ declare module 'vue-router' {
 // Get base path from server-injected config or fallback to Vite's BASE_URL
 const basePath = (window as any).__BASE_PATH__ ?? import.meta.env.BASE_URL ?? '/'
 const normalizedBasePath = basePath.endsWith('/') ? basePath : basePath + '/'
+const serverlessCore = import.meta.env.VITE_SERVERLESS_CORE === 'true'
 
 const router = createRouter({
   history: createWebHistory(normalizedBasePath),
@@ -394,6 +395,10 @@ function getFirstAccessibleRoute(authStore: ReturnType<typeof useAuthStore>): st
 // Navigation guard
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
+
+  if (serverlessCore && to.name === 'dashboard') {
+    return next({ name: 'chat-conversation' })
+  }
 
   // Check if route requires auth
   if (to.meta.requiresAuth !== false) {
