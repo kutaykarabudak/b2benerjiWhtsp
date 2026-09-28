@@ -201,6 +201,7 @@ const canRetryFailed = computed(() => {
   const s = campaign.value.status
   return s === 'completed' || s === 'paused' || s === 'failed'
 })
+const isRetryingFailed = ref(false)
 
 // --- Recipients state ---
 const recipients = ref<Recipient[]>([])
@@ -549,7 +550,8 @@ async function confirmCancelCampaign() {
 }
 
 async function retryFailed() {
-  if (!campaign.value) return
+  if (!campaign.value || isRetryingFailed.value) return
+  isRetryingFailed.value = true
   try {
     const response = await campaignsService.retryFailed(campaign.value.id)
     const result = (response.data as any).data
@@ -558,6 +560,8 @@ async function retryFailed() {
     await loadRecipients()
   } catch (err: unknown) {
     toast.error(getErrorMessage(err, t('campaigns.retryFailedError', 'Failed to retry')))
+  } finally {
+    isRetryingFailed.value = false
   }
 }
 
@@ -1133,9 +1137,10 @@ onUnmounted(() => {
           v-if="!isNew && campaign && canRetryFailed"
           variant="outline"
           size="sm"
+          :disabled="isRetryingFailed"
           @click="retryFailed"
         >
-          <RefreshCw class="h-4 w-4 mr-1" />
+          <RefreshCw class="h-4 w-4 mr-1" :class="{ 'animate-spin': isRetryingFailed }" />
           {{ $t('campaigns.retryFailed', 'Retry Failed') }}
         </Button>
 

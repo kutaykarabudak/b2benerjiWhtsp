@@ -443,12 +443,21 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 		writeError(ctx, 404, "Campaign not found")
 		return
 	}
+	status := strings.ToLower(strings.TrimSpace(campaign.Status))
 	if retryFailed {
-		if campaign.Status != "completed" && campaign.Status != "paused" && campaign.Status != "failed" {
+		// Treat a duplicate click while the first retry is still running as an
+		// idempotent success. The browser used to leave the retry button enabled,
+		// so a second request could misleadingly report that retry was forbidden
+		// even though the first request was actively sending the failed recipients.
+		if status == "processing" {
+			writeData(ctx, 200, map[string]any{"message": "Campaign retry is already in progress", "status": status, "processed": 0, "retry_count": 0, "already_processing": true})
+			return
+		}
+		if status != "completed" && status != "paused" && status != "failed" {
 			writeError(ctx, 400, "Failed messages cannot be retried in the current state")
 			return
 		}
-	} else if campaign.Status != "draft" && campaign.Status != "scheduled" && campaign.Status != "paused" {
+	} else if status != "draft" && status != "scheduled" && status != "paused" {
 		writeError(ctx, 400, "Campaign cannot be started in the current state")
 		return
 	}
@@ -605,7 +614,11 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 	}
 	campaign.UpdatedAt = finished
 	_ = a.administration().PutCampaign(context.Background(), *campaign)
-	writeData(ctx, 200, map[string]any{"message": "Campaign processing finished", "status": campaign.Status, "processed": processed, "sent_count": campaign.SentCount, "failed_count": campaign.FailedCount})
+	result := map[string]any{"message": "Campaign processing finished", "status": campaign.Status, "processed": processed, "sent_count": campaign.SentCount, "failed_count": campaign.FailedCount}
+	if retryFailed {
+		result["retry_count"] = processed
+	}
+	writeData(ctx, 200, result)
 }
 
 func (a *App) saveCampaignChatMessage(ctx context.Context, orgID, userID, accountName string, campaign *firestorestore.Campaign, template *firestorestore.Template, recipient *firestorestore.CampaignRecipient, externalID string, sentAt time.Time) error {
