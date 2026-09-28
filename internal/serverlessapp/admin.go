@@ -467,8 +467,72 @@ type templateRequest struct {
 
 var invalidTemplateChars = regexp.MustCompile(`[^a-z0-9_]+`)
 
+var turkishTemplateChars = strings.NewReplacer(
+	"ı", "i", "İ", "i", "ş", "s", "Ş", "s", "ğ", "g", "Ğ", "g",
+	"ü", "u", "Ü", "u", "ö", "o", "Ö", "o", "ç", "c", "Ç", "c",
+)
+
 func normalizedTemplateName(value string) string {
-	return strings.Trim(invalidTemplateChars.ReplaceAllString(strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), " ", "_"), "_"), "_")
+	value = turkishTemplateChars.Replace(strings.TrimSpace(value))
+	return strings.Trim(invalidTemplateChars.ReplaceAllString(strings.ReplaceAll(strings.ToLower(value), " ", "_"), "_"), "_")
+}
+
+func reconcileTemplateSync(existing []firestorestore.Template, remote []whatsapp.MetaTemplate, orgID, accountName string, now time.Time) ([]firestorestore.Template, []firestorestore.Template) {
+	synced := make([]firestorestore.Template, 0, len(remote))
+	matchedLocal := make(map[string]bool, len(remote))
+	for _, meta := range remote {
+		var template *firestorestore.Template
+		for i := range existing {
+			if existing[i].WhatsAppAccount == accountName && existing[i].Name == meta.Name && existing[i].Language == meta.Language {
+				copy := existing[i]
+				template = &copy
+				matchedLocal[copy.ID] = true
+				break
+			}
+		}
+		if template == nil {
+			template = &firestorestore.Template{ID: uuid.NewString(), OrganizationID: orgID, WhatsAppAccount: accountName, Name: meta.Name, DisplayName: meta.Name, CreatedAt: now}
+		}
+		template.MetaTemplateID = meta.ID
+		template.Language = meta.Language
+		template.Category = meta.Category
+		template.Status = meta.Status
+		template.QualityRating = meta.QualityRating
+		if meta.QualityScore != nil && meta.QualityScore.Score != "" {
+			template.QualityRating = meta.QualityScore.Score
+		}
+		template.HeaderType, template.HeaderContent, template.BodyContent, template.FooterContent = "", "", "", ""
+		template.Buttons = []any{}
+		for _, component := range meta.Components {
+			switch component.Type {
+			case "HEADER":
+				template.HeaderType, template.HeaderContent = component.Format, component.Text
+			case "BODY":
+				template.BodyContent = component.Text
+			case "FOOTER":
+				template.FooterContent = component.Text
+			case "BUTTONS":
+				raw, _ := json.Marshal(component.Buttons)
+				_ = json.Unmarshal(raw, &template.Buttons)
+			}
+		}
+		template.IsDeleted, template.DeletedAt, template.UpdatedAt = false, nil, now
+		synced = append(synced, *template)
+	}
+
+	unavailable := make([]firestorestore.Template, 0)
+	for i := range existing {
+		template := existing[i]
+		if template.WhatsAppAccount != accountName || template.IsDeleted || template.MetaTemplateID == "" || matchedLocal[template.ID] {
+			continue
+		}
+		template.MetaTemplateID = ""
+		template.Status = "NOT_AVAILABLE"
+		template.QualityRating = "UNKNOWN"
+		template.UpdatedAt = now
+		unavailable = append(unavailable, template)
+	}
+	return synced, unavailable
 }
 
 func (a *App) CreateTemplate(ctx *fasthttp.RequestCtx) {
@@ -647,49 +711,19 @@ func (a *App) SyncTemplates(ctx *fasthttp.RequestCtx) {
 	}
 	existing, _ := a.store.ListTemplates(requestCtx, claims.OrganizationID.String())
 	now := a.now().UTC()
-	synced := 0
-	for _, meta := range remote {
-		var template *firestorestore.Template
-		for i := range existing {
-			if existing[i].WhatsAppAccount == request.WhatsAppAccount && existing[i].Name == meta.Name && existing[i].Language == meta.Language {
-				copy := existing[i]
-				template = &copy
-				break
-			}
-		}
-		if template == nil {
-			template = &firestorestore.Template{ID: uuid.NewString(), OrganizationID: claims.OrganizationID.String(), WhatsAppAccount: request.WhatsAppAccount, Name: meta.Name, DisplayName: meta.Name, CreatedAt: now}
-		}
-		template.MetaTemplateID = meta.ID
-		template.Language = meta.Language
-		template.Category = meta.Category
-		template.Status = meta.Status
-		template.QualityRating = meta.QualityRating
-		if meta.QualityScore != nil && meta.QualityScore.Score != "" {
-			template.QualityRating = meta.QualityScore.Score
-		}
-		for _, component := range meta.Components {
-			switch component.Type {
-			case "HEADER":
-				template.HeaderType = component.Format
-				template.HeaderContent = component.Text
-			case "BODY":
-				template.BodyContent = component.Text
-			case "FOOTER":
-				template.FooterContent = component.Text
-			case "BUTTONS":
-				raw, _ := json.Marshal(component.Buttons)
-				_ = json.Unmarshal(raw, &template.Buttons)
-			}
-		}
-		template.IsDeleted = false
-		template.DeletedAt = nil
-		template.UpdatedAt = now
-		if err := a.administration().PutTemplate(requestCtx, *template); err == nil {
+	syncedTemplates, unavailableTemplates := reconcileTemplateSync(existing, remote, claims.OrganizationID.String(), request.WhatsAppAccount, now)
+	synced, unavailable := 0, 0
+	for i := range syncedTemplates {
+		if err := a.administration().PutTemplate(requestCtx, syncedTemplates[i]); err == nil {
 			synced++
 		}
 	}
-	writeData(ctx, 200, map[string]any{"message": "Templates synchronized successfully", "synced": synced})
+	for i := range unavailableTemplates {
+		if err := a.administration().PutTemplate(requestCtx, unavailableTemplates[i]); err == nil {
+			unavailable++
+		}
+	}
+	writeData(ctx, 200, map[string]any{"message": "Templates synchronized successfully", "synced": synced, "unavailable": unavailable})
 }
 
 func (a *App) PublishTemplate(ctx *fasthttp.RequestCtx) {

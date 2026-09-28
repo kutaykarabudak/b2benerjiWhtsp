@@ -222,6 +222,35 @@ func TestClient_FetchTemplates_Empty(t *testing.T) {
 	assert.Empty(t, templates)
 }
 
+func TestClient_FetchTemplates_FollowsPagination(t *testing.T) {
+	t.Parallel()
+
+	page := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page++
+		w.WriteHeader(http.StatusOK)
+		if page == 1 {
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data":   []map[string]any{{"id": "1", "name": "first", "language": "tr", "status": "APPROVED"}},
+				"paging": map[string]any{"next": "https://graph.facebook.com/next-page"},
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"id": "2", "name": "second", "language": "tr", "status": "APPROVED"}},
+		})
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	templates, err := client.FetchTemplates(context.Background(), testAccount(server.URL))
+	require.NoError(t, err)
+	require.Len(t, templates, 2)
+	assert.Equal(t, "first", templates[0].Name)
+	assert.Equal(t, "second", templates[1].Name)
+	assert.Equal(t, 2, page)
+}
+
 func TestClient_FetchTemplates_APIError(t *testing.T) {
 	t.Parallel()
 

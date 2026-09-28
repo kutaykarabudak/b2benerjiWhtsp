@@ -475,6 +475,36 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 		writeError(ctx, 500, "WhatsApp credentials could not be opened")
 		return
 	}
+	wa := &whatsapp.Account{PhoneID: account.PhoneID, BusinessID: account.BusinessID, AppID: account.AppID, APIVersion: account.APIVersion, AccessToken: token}
+	if admin, available := a.sender.(templateAdminMessenger); available {
+		requestCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		remoteTemplates, fetchErr := admin.FetchTemplates(requestCtx, wa)
+		cancel()
+		if fetchErr != nil {
+			writeError(ctx, 502, "Campaign template could not be verified with Meta: "+fetchErr.Error())
+			return
+		}
+		var remote *whatsapp.MetaTemplate
+		for i := range remoteTemplates {
+			if remoteTemplates[i].Name == template.Name && remoteTemplates[i].Language == template.Language {
+				remote = &remoteTemplates[i]
+				break
+			}
+		}
+		if remote == nil || !strings.EqualFold(remote.Status, "APPROVED") {
+			if remote == nil {
+				template.MetaTemplateID = ""
+				template.Status = "NOT_AVAILABLE"
+			} else {
+				template.MetaTemplateID = remote.ID
+				template.Status = remote.Status
+			}
+			template.UpdatedAt = a.now().UTC()
+			_ = a.administration().PutTemplate(context.Background(), *template)
+			writeError(ctx, 409, "Campaign template is no longer approved or available in Meta; synchronize templates and choose an approved template")
+			return
+		}
+	}
 	recipients, err := a.administration().ListCampaignRecipients(context.Background(), orgID, campaignID)
 	if err != nil {
 		writeError(ctx, 500, "Failed to load campaign recipients")
@@ -503,7 +533,6 @@ func (a *App) processCampaign(ctx *fasthttp.RequestCtx, retryFailed bool) {
 		writeError(ctx, 500, "Failed to start campaign")
 		return
 	}
-	wa := &whatsapp.Account{PhoneID: account.PhoneID, BusinessID: account.BusinessID, AppID: account.AppID, APIVersion: account.APIVersion, AccessToken: token}
 	processed := 0
 	for i := range pending {
 		current, loadErr := a.administration().Campaign(context.Background(), orgID, campaignID)

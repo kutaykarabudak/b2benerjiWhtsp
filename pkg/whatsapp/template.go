@@ -389,20 +389,25 @@ func (c *Client) buildStandardComponents(template *TemplateSubmission) ([]map[st
 // FetchTemplates fetches all templates from Meta's API
 func (c *Client) FetchTemplates(ctx context.Context, account *Account) ([]MetaTemplate, error) {
 	url := fmt.Sprintf("%s?fields=id,name,language,category,status,components,quality_score,quality_rating&limit=100", c.buildTemplatesURL(account))
-
-	respBody, err := c.doRequest(ctx, http.MethodGet, url, nil, account.AccessToken)
-	if err != nil {
-		c.Log.Error("Failed to fetch templates", "error", err)
-		return nil, err
+	all := make([]MetaTemplate, 0)
+	for page := 0; url != "" && page < 50; page++ {
+		respBody, err := c.doRequest(ctx, http.MethodGet, url, nil, account.AccessToken)
+		if err != nil {
+			c.Log.Error("Failed to fetch templates", "error", err, "page", page+1)
+			return nil, err
+		}
+		var result TemplateListResponse
+		if err := json.Unmarshal(respBody, &result); err != nil {
+			return nil, fmt.Errorf("failed to parse response: %w", err)
+		}
+		all = append(all, result.Data...)
+		url = result.Paging.Next
 	}
-
-	var result TemplateListResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	if url != "" {
+		return nil, fmt.Errorf("template pagination exceeded safety limit")
 	}
-
-	c.Log.Info("Fetched templates from Meta", "count", len(result.Data))
-	return result.Data, nil
+	c.Log.Info("Fetched templates from Meta", "count", len(all))
+	return all, nil
 }
 
 // DeleteTemplate deletes a template from Meta's API
