@@ -252,7 +252,26 @@ func (a *App) accountForAdmin(ctx *fasthttp.RequestCtx) (*firestorestore.WhatsAp
 		writeError(ctx, 501, "WhatsApp account administration is unavailable")
 		return nil, nil, nil, false
 	}
-	return account, &whatsapp.Account{PhoneID: account.PhoneID, BusinessID: account.BusinessID, AppID: account.AppID, APIVersion: account.APIVersion, AccessToken: token}, admin, true
+	return account, a.whatsAppClientAccount(context.Background(), claims.OrganizationID.String(), account, token), admin, true
+}
+
+// whatsAppClientAccount resolves the Meta App ID from the most specific
+// available source. Accounts created before the Firestore migration may not
+// have appId copied onto the account document even though the organization
+// already has a valid Meta App ID configured.
+func (a *App) whatsAppClientAccount(ctx context.Context, orgID string, account *firestorestore.WhatsAppAccount, accessToken string) *whatsapp.Account {
+	appID := strings.TrimSpace(account.AppID)
+	if appID == "" {
+		if org, err := a.store.Organization(ctx, orgID); err == nil && org.Settings != nil {
+			if configured, ok := org.Settings["meta_app_id"].(string); ok {
+				appID = strings.TrimSpace(configured)
+			}
+		}
+	}
+	if appID == "" {
+		appID = strings.TrimSpace(a.config.WhatsApp.AppID)
+	}
+	return &whatsapp.Account{PhoneID: account.PhoneID, BusinessID: account.BusinessID, AppID: appID, APIVersion: account.APIVersion, AccessToken: accessToken}
 }
 
 func (a *App) TestAccountConnection(ctx *fasthttp.RequestCtx) {
@@ -666,7 +685,7 @@ func (a *App) templateAccount(ctx context.Context, orgID, name string) (*firesto
 	if err != nil {
 		return nil, nil, err
 	}
-	return account, &whatsapp.Account{PhoneID: account.PhoneID, BusinessID: account.BusinessID, AppID: account.AppID, APIVersion: account.APIVersion, AccessToken: token}, nil
+	return account, a.whatsAppClientAccount(ctx, orgID, account, token), nil
 }
 func (a *App) templateDelete(ctx context.Context, account *whatsapp.Account, name string) error {
 	admin, ok := a.sender.(templateAdminMessenger)

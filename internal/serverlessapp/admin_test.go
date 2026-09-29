@@ -1,12 +1,66 @@
 package serverlessapp
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/shridarpatil/whatomate/internal/config"
+	appcrypto "github.com/shridarpatil/whatomate/internal/crypto"
 	"github.com/shridarpatil/whatomate/internal/firestorestore"
 	"github.com/shridarpatil/whatomate/pkg/whatsapp"
 )
+
+func TestTemplateAccountFallsBackToOrganizationMetaAppID(t *testing.T) {
+	const encryptionKey = "0123456789abcdef0123456789abcdef"
+	encryptedToken, err := appcrypto.Encrypt("access-token", encryptionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{
+		accounts: []firestorestore.WhatsAppAccount{{Name: "main", AccessToken: encryptedToken}},
+		organization: &firestorestore.Organization{
+			ID:       "org",
+			Settings: map[string]any{"meta_app_id": "org-app-id"},
+		},
+	}
+	app := &App{store: store, config: &config.Config{App: config.AppConfig{EncryptionKey: encryptionKey}}}
+
+	_, account, err := app.templateAccount(context.Background(), "org", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.AppID != "org-app-id" {
+		t.Fatalf("app id=%q, want organization Meta App ID", account.AppID)
+	}
+	if account.AccessToken != "access-token" {
+		t.Fatalf("access token was not decrypted")
+	}
+}
+
+func TestTemplateAccountPrefersAccountAppID(t *testing.T) {
+	const encryptionKey = "0123456789abcdef0123456789abcdef"
+	encryptedToken, err := appcrypto.Encrypt("access-token", encryptionKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &fakeStore{
+		accounts: []firestorestore.WhatsAppAccount{{Name: "main", AppID: "account-app-id", AccessToken: encryptedToken}},
+		organization: &firestorestore.Organization{
+			ID:       "org",
+			Settings: map[string]any{"meta_app_id": "org-app-id"},
+		},
+	}
+	app := &App{store: store, config: &config.Config{App: config.AppConfig{EncryptionKey: encryptionKey}, WhatsApp: config.WhatsAppConfig{AppID: "config-app-id"}}}
+
+	_, account, err := app.templateAccount(context.Background(), "org", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.AppID != "account-app-id" {
+		t.Fatalf("app id=%q, want account App ID", account.AppID)
+	}
+}
 
 func TestNormalizedTemplateNameTransliteratesTurkishCharacters(t *testing.T) {
 	if got := normalizedTemplateName("B2B Tanıtım Şablonu"); got != "b2b_tanitim_sablonu" {
