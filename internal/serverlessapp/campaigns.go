@@ -22,10 +22,35 @@ import (
 )
 
 type campaignRequest struct {
-	Name            string     `json:"name"`
-	WhatsAppAccount string     `json:"whatsapp_account"`
-	TemplateID      string     `json:"template_id"`
-	ScheduledAt     *time.Time `json:"scheduled_at"`
+	Name        string     `json:"name"`
+	TemplateID  string     `json:"template_id"`
+	ScheduledAt *time.Time `json:"scheduled_at"`
+}
+
+func singleActiveCampaignAccount(accounts []firestorestore.WhatsAppAccount) (*firestorestore.WhatsAppAccount, error) {
+	var active *firestorestore.WhatsAppAccount
+	for i := range accounts {
+		account := &accounts[i]
+		if account.IsDeleted || !strings.EqualFold(strings.TrimSpace(account.Status), "active") {
+			continue
+		}
+		if active != nil {
+			return nil, fmt.Errorf("multiple active WhatsApp accounts: %w", firestorestore.ErrConflict)
+		}
+		active = account
+	}
+	if active == nil {
+		return nil, firestorestore.ErrNotFound
+	}
+	return active, nil
+}
+
+func (a *App) campaignAccount(ctx context.Context, orgID string) (*firestorestore.WhatsAppAccount, error) {
+	accounts, err := a.store.ListWhatsAppAccounts(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return singleActiveCampaignAccount(accounts)
 }
 
 func (a *App) ListCampaigns(ctx *fasthttp.RequestCtx) {
@@ -72,27 +97,32 @@ func (a *App) CreateCampaign(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	var request campaignRequest
-	if !decodeJSON(ctx, &request) || strings.TrimSpace(request.Name) == "" || request.WhatsAppAccount == "" || request.TemplateID == "" {
-		writeError(ctx, 400, "name, whatsapp_account and template_id are required")
+	if !decodeJSON(ctx, &request) || strings.TrimSpace(request.Name) == "" || request.TemplateID == "" {
+		writeError(ctx, 400, "name and template_id are required")
 		return
 	}
 	requestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	account, err := a.campaignAccount(requestCtx, claims.OrganizationID.String())
+	if errors.Is(err, firestorestore.ErrNotFound) {
+		writeError(ctx, 400, "No active WhatsApp account found")
+		return
+	}
+	if err != nil {
+		writeError(ctx, 400, "Exactly one active WhatsApp account is required")
+		return
+	}
 	template, err := a.store.Template(requestCtx, claims.OrganizationID.String(), request.TemplateID)
 	if err != nil {
 		writeError(ctx, 400, "Template not found")
 		return
 	}
-	if template.WhatsAppAccount != request.WhatsAppAccount {
-		writeError(ctx, 400, "Template does not belong to the selected WhatsApp account")
-		return
-	}
-	if _, err := a.store.ResolveWhatsAppAccount(requestCtx, claims.OrganizationID.String(), request.WhatsAppAccount); err != nil {
-		writeError(ctx, 400, "WhatsApp account not found")
+	if template.WhatsAppAccount != account.Name {
+		writeError(ctx, 400, "Template does not belong to the active WhatsApp account")
 		return
 	}
 	now := a.now().UTC()
-	campaign := firestorestore.Campaign{ID: uuid.NewString(), OrganizationID: claims.OrganizationID.String(), WhatsAppAccount: request.WhatsAppAccount, Name: strings.TrimSpace(request.Name), TemplateID: template.ID, TemplateName: template.Name, Status: "draft", ScheduledAt: request.ScheduledAt, CreatedByID: claims.UserID.String(), UpdatedByID: claims.UserID.String(), CreatedAt: now, UpdatedAt: now}
+	campaign := firestorestore.Campaign{ID: uuid.NewString(), OrganizationID: claims.OrganizationID.String(), WhatsAppAccount: account.Name, Name: strings.TrimSpace(request.Name), TemplateID: template.ID, TemplateName: template.Name, Status: "draft", ScheduledAt: request.ScheduledAt, CreatedByID: claims.UserID.String(), UpdatedByID: claims.UserID.String(), CreatedAt: now, UpdatedAt: now}
 	if err := a.administration().PutCampaign(requestCtx, campaign); err != nil {
 		writeError(ctx, 500, "Failed to create campaign")
 		return
@@ -135,22 +165,30 @@ func (a *App) UpdateCampaign(ctx *fasthttp.RequestCtx) {
 	if strings.TrimSpace(request.Name) != "" {
 		campaign.Name = strings.TrimSpace(request.Name)
 	}
-	if request.WhatsAppAccount != "" {
-		campaign.WhatsAppAccount = request.WhatsAppAccount
+	requestCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	account, accountErr := a.campaignAccount(requestCtx, claims.OrganizationID.String())
+	if errors.Is(accountErr, firestorestore.ErrNotFound) {
+		writeError(ctx, 400, "No active WhatsApp account found")
+		return
 	}
-	if request.TemplateID != "" {
-		template, templateErr := a.store.Template(context.Background(), claims.OrganizationID.String(), request.TemplateID)
-		if templateErr != nil {
-			writeError(ctx, 400, "Template not found")
-			return
-		}
-		if template.WhatsAppAccount != campaign.WhatsAppAccount {
-			writeError(ctx, 400, "Template does not belong to the selected WhatsApp account")
-			return
-		}
-		campaign.TemplateID = template.ID
-		campaign.TemplateName = template.Name
+	if accountErr != nil {
+		writeError(ctx, 400, "Exactly one active WhatsApp account is required")
+		return
 	}
+	templateID := firstNonEmpty(request.TemplateID, campaign.TemplateID)
+	template, templateErr := a.store.Template(requestCtx, claims.OrganizationID.String(), templateID)
+	if templateErr != nil {
+		writeError(ctx, 400, "Template not found")
+		return
+	}
+	if template.WhatsAppAccount != account.Name {
+		writeError(ctx, 400, "Template does not belong to the active WhatsApp account")
+		return
+	}
+	campaign.WhatsAppAccount = account.Name
+	campaign.TemplateID = template.ID
+	campaign.TemplateName = template.Name
 	campaign.ScheduledAt = request.ScheduledAt
 	campaign.UpdatedByID = claims.UserID.String()
 	campaign.UpdatedAt = a.now().UTC()

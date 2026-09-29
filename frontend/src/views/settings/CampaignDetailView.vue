@@ -103,11 +103,6 @@ interface Campaign {
   updated_at: string
 }
 
-interface Account {
-  id: string
-  name: string
-}
-
 interface Template {
   id: string
   name: string
@@ -153,7 +148,6 @@ const isSaving = ref(false)
 const hasChanges = ref(false)
 const deleteDialogOpen = ref(false)
 
-const accounts = ref<Account[]>([])
 const templates = ref<Template[]>([])
 
 const { showLeaveDialog, confirmLeave, cancelLeave } = useUnsavedChangesGuard(hasChanges)
@@ -357,12 +351,15 @@ function getRecipientStatusClass(status: string): string {
   }
 }
 
-async function loadAccounts() {
+async function loadActiveAccount() {
   try {
     const response = await api.get('/accounts')
-    accounts.value = (response.data as any).data?.accounts || []
+    const accounts = ((response.data as any).data?.accounts || []).filter(
+      (account: { status?: string }) => account.status?.toLowerCase() === 'active',
+    )
+    form.value.whatsapp_account = accounts.length === 1 ? accounts[0].name : ''
   } catch {
-    accounts.value = []
+    form.value.whatsapp_account = ''
   }
 }
 
@@ -413,17 +410,6 @@ watch(form, () => {
   hasChanges.value = true
 }, { deep: true })
 
-// Reload templates when account changes
-watch(() => form.value.whatsapp_account, (newVal, oldVal) => {
-  if (newVal !== oldVal) {
-    // Clear template selection if account changed
-    if (oldVal) {
-      form.value.template_id = ''
-    }
-    loadTemplates()
-  }
-})
-
 // Fetch full template details when template_id changes (for param names & header type)
 watch(() => form.value.template_id, async (newId) => {
   if (newId) {
@@ -443,11 +429,14 @@ async function save() {
     toast.error(t('campaigns.nameRequired', 'Campaign name is required'))
     return
   }
+  if (!form.value.template_id) {
+    toast.error(t('campaigns.selectTemplateRequired', 'Please select a template'))
+    return
+  }
   isSaving.value = true
   try {
     const payload: Record<string, any> = {
       name: form.value.name,
-      whatsapp_account: form.value.whatsapp_account || undefined,
       template_id: form.value.template_id || undefined,
       scheduled_at: form.value.scheduled_at ? new Date(form.value.scheduled_at).toISOString() : null,
     }
@@ -483,12 +472,13 @@ async function save() {
       hasChanges.value = false
       toast.success(t('campaigns.updated', 'Campaign updated'))
     }
-  } catch {
-    toast.error(
+  } catch (err: unknown) {
+    toast.error(getErrorMessage(
+      err,
       isNew.value
         ? t('campaigns.createFailed', 'Failed to create campaign')
         : t('campaigns.updateFailed', 'Failed to update campaign'),
-    )
+    ))
   } finally {
     isSaving.value = false
   }
@@ -1023,8 +1013,9 @@ async function addRecipientsFromCSV() {
 }
 
 onMounted(async () => {
-  await loadAccounts()
   if (isNew.value) {
+    await loadActiveAccount()
+    await loadTemplates()
     isLoading.value = false
     hasChanges.value = false
   } else {
@@ -1175,23 +1166,10 @@ onUnmounted(() => {
           <Input v-model="form.name" :disabled="!isDraft" :placeholder="$t('campaigns.namePlaceholder', 'Enter campaign name')" />
         </div>
         <div class="space-y-1.5">
-          <Label class="text-xs">{{ $t('campaigns.whatsappAccount', 'WhatsApp Account') }}</Label>
-          <Select v-model="form.whatsapp_account" :disabled="!isDraft">
-            <SelectTrigger>
-              <SelectValue :placeholder="$t('campaigns.selectAccount', 'Select account')" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="account in accounts" :key="account.name" :value="account.name">
-                {{ account.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div class="space-y-1.5">
           <Label class="text-xs">{{ $t('campaigns.template', 'Template') }}</Label>
           <Select v-model="form.template_id" :disabled="!isDraft || !form.whatsapp_account">
             <SelectTrigger>
-              <SelectValue :placeholder="form.whatsapp_account ? $t('campaigns.selectTemplate', 'Select template') : $t('campaigns.selectAccountFirst', 'Select an account first')" />
+              <SelectValue :placeholder="form.whatsapp_account ? $t('campaigns.selectTemplate', 'Select template') : $t('campaigns.noActiveAccount', 'No active WhatsApp account')" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="tmpl in templates.filter(t => t.id)" :key="tmpl.id" :value="tmpl.id">
