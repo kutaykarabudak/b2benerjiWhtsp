@@ -1665,10 +1665,22 @@ func (s *Store) MarkContactRead(ctx context.Context, orgID, contactID string, up
 }
 
 func (s *Store) ListMessages(ctx context.Context, orgID, contactID string, limit int, before *time.Time) ([]Message, error) {
+	return s.listMessages(ctx, orgID, contactID, "", limit, before)
+}
+
+func (s *Store) ListMessagesForAccount(ctx context.Context, orgID, contactID, account string, limit int, before *time.Time) ([]Message, error) {
+	return s.listMessages(ctx, orgID, contactID, strings.TrimSpace(account), limit, before)
+}
+
+func (s *Store) listMessages(ctx context.Context, orgID, contactID, account string, limit int, before *time.Time) ([]Message, error) {
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	query := s.contact(orgID, contactID).Collection("messages").OrderBy("createdAt", firestore.Desc).Limit(limit)
+	query := s.contact(orgID, contactID).Collection("messages").Query
+	if account != "" {
+		query = query.Where("whatsAppAccount", "==", account)
+	}
+	query = query.OrderBy("createdAt", firestore.Desc).Limit(limit)
 	if before != nil {
 		query = query.StartAfter(*before)
 	}

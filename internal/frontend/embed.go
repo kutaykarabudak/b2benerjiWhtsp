@@ -37,6 +37,21 @@ var distFS embed.FS
 // cachedIndexHTML stores the modified index.html with injected base path
 var cachedIndexHTML []byte
 
+func setAssetCacheHeaders(w http.ResponseWriter, filePath string) {
+	w.Header().Set("Vary", "Accept-Encoding")
+	if strings.HasPrefix(filePath, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+}
+
+func setSPAHTMLCacheHeaders(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+}
+
 // Handler returns a fasthttp handler that serves the embedded frontend files
 // basePath should be empty string for root deployment or "/subpath" for subdirectory
 // If frontend is not embedded, returns a handler that shows a helpful message
@@ -104,6 +119,9 @@ func Handler(basePath string) fasthttp.RequestHandler {
 				} else {
 					w.Header().Set("Content-Type", "application/octet-stream")
 				}
+				// Vite assets are content-hashed, so they can be cached forever. Other
+				// files must be revalidated so browsers do not mix frontend releases.
+				setAssetCacheHeaders(w, filePath)
 
 				// Check Accept-Encoding and serve pre-compressed if available
 				acceptEncoding := r.Header.Get("Accept-Encoding")
@@ -147,6 +165,7 @@ func Handler(basePath string) fasthttp.RequestHandler {
 		// For root or non-existent files (SPA routes), serve modified index.html
 		if path == "/" || (!strings.HasPrefix(path, "/api") && !strings.Contains(path, ".")) {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			setSPAHTMLCacheHeaders(w)
 			_, _ = w.Write(cachedIndexHTML)
 			return
 		}

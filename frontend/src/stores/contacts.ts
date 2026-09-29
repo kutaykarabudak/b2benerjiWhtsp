@@ -104,6 +104,7 @@ export const useContactsStore = defineStore('contacts', () => {
   const selectedTags = ref<string[]>([])
   const replyingTo = ref<Message | null>(null)
   const accountFilter = ref<string | null>(null)
+  let messagesRequestGeneration = 0
 
   // Contacts pagination
   const contactsPage = ref(1)
@@ -196,6 +197,7 @@ export const useContactsStore = defineStore('contacts', () => {
   }
 
   async function fetchMessages(contactId: string, params?: { page?: number; limit?: number; account?: string }) {
+    const requestGeneration = ++messagesRequestGeneration
     isLoadingMessages.value = true
     // Drop the previous contact's messages immediately so the list doesn't show
     // stale content under the new contact's header while the fetch is in flight.
@@ -204,12 +206,16 @@ export const useContactsStore = defineStore('contacts', () => {
       const response = await messagesService.list(contactId, params)
       // API returns { status: "success", data: { messages: [...], has_more: boolean } }
       const data = response.data.data || response.data
-      messages.value = data.messages || []
-      hasMoreMessages.value = data.has_more === true
+      if (requestGeneration === messagesRequestGeneration) {
+        messages.value = data.messages || []
+        hasMoreMessages.value = data.has_more === true
+      }
     } catch (error) {
       console.error('Failed to fetch messages:', error)
     } finally {
-      isLoadingMessages.value = false
+      if (requestGeneration === messagesRequestGeneration) {
+        isLoadingMessages.value = false
+      }
     }
   }
 
@@ -354,6 +360,7 @@ export const useContactsStore = defineStore('contacts', () => {
   }
 
   function clearMessages() {
+    messagesRequestGeneration++
     messages.value = []
     hasMoreMessages.value = false
     accountFilter.value = null

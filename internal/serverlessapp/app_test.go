@@ -331,6 +331,15 @@ func (s *fakeStore) DeleteContact(_ context.Context, contact firestorestore.Cont
 func (s *fakeStore) ListMessages(context.Context, string, string, int, *time.Time) ([]firestorestore.Message, error) {
 	return s.messages, nil
 }
+func (s *fakeStore) ListMessagesForAccount(_ context.Context, _, _, account string, _ int, _ *time.Time) ([]firestorestore.Message, error) {
+	filtered := make([]firestorestore.Message, 0)
+	for _, message := range s.messages {
+		if message.WhatsAppAccount == account {
+			filtered = append(filtered, message)
+		}
+	}
+	return filtered, nil
+}
 func (s *fakeStore) Message(_ context.Context, _, _, messageID string) (*firestorestore.Message, error) {
 	for i := range s.messages {
 		if s.messages[i].ID == messageID {
@@ -555,6 +564,32 @@ func TestLoginAndAuthenticatedContactList(t *testing.T) {
 	}
 	if envelope.Data.Total != 1 || len(envelope.Data.Contacts) != 1 {
 		t.Fatalf("unexpected envelope: %+v", envelope)
+	}
+}
+
+func TestListMessagesFiltersByWhatsAppAccount(t *testing.T) {
+	app, store := testApp(t)
+	contactID := uuid.NewString()
+	store.messages = []firestorestore.Message{
+		{ID: "main-message", ContactID: contactID, WhatsAppAccount: "main", Content: "main"},
+		{ID: "support-message", ContactID: contactID, WhatsAppAccount: "support", Content: "support"},
+	}
+	access, _, err := app.issueTokens(context.Background(), store.user)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var ctx fasthttp.RequestCtx
+	ctx.SetUserValue("id", contactID)
+	ctx.Request.Header.Set("Authorization", "Bearer "+access)
+	ctx.QueryArgs().Set("account", "support")
+	app.ListMessages(&ctx)
+
+	if ctx.Response.StatusCode() != fasthttp.StatusOK {
+		t.Fatalf("status=%d body=%s", ctx.Response.StatusCode(), ctx.Response.Body())
+	}
+	if body := string(ctx.Response.Body()); !strings.Contains(body, "support-message") || strings.Contains(body, "main-message") {
+		t.Fatalf("unexpected filtered messages: %s", body)
 	}
 }
 

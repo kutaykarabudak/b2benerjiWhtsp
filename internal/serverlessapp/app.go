@@ -52,6 +52,7 @@ type Store interface {
 	UpdateContact(context.Context, firestorestore.Contact, firestorestore.Contact) error
 	DeleteContact(context.Context, firestorestore.Contact, time.Time) error
 	ListMessages(context.Context, string, string, int, *time.Time) ([]firestorestore.Message, error)
+	ListMessagesForAccount(context.Context, string, string, string, int, *time.Time) ([]firestorestore.Message, error)
 	Message(context.Context, string, string, string) (*firestorestore.Message, error)
 	MessageByID(context.Context, string, string) (*firestorestore.Message, error)
 	ListWhatsAppAccounts(context.Context, string) ([]firestorestore.WhatsAppAccount, error)
@@ -1023,7 +1024,14 @@ func (a *App) ListMessages(ctx *fasthttp.RequestCtx) {
 			before = &value
 		}
 	}
-	messages, err := a.store.ListMessages(requestCtx, claims.OrganizationID.String(), contactID, limit, before)
+	account := strings.TrimSpace(string(ctx.QueryArgs().Peek("account")))
+	var messages []firestorestore.Message
+	var err error
+	if account == "" {
+		messages, err = a.store.ListMessages(requestCtx, claims.OrganizationID.String(), contactID, limit, before)
+	} else {
+		messages, err = a.store.ListMessagesForAccount(requestCtx, claims.OrganizationID.String(), contactID, account, limit, before)
+	}
 	if err != nil {
 		writeError(ctx, http.StatusInternalServerError, "Failed to list messages")
 		return

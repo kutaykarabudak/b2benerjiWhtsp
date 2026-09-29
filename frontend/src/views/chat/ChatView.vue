@@ -141,6 +141,7 @@ const contactSessionData = ref<any>(null)
 const selectedAccount = ref<string | null>(null)
 const contactAccounts = ref<string[]>([])
 const orgAccounts = ref<any[]>([])
+const isSwitchingAccount = ref(false)
 
 // File upload state
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -682,14 +683,19 @@ watch(() => contactsStore.messages, () => {
 }, { deep: true })
 
 async function switchAccount(accountName: string) {
-  if (!contactsStore.currentContact || accountName === selectedAccount.value) return
+  if (!contactsStore.currentContact || accountName === selectedAccount.value || isSwitchingAccount.value) return
+  const contactID = contactsStore.currentContact.id
+  isSwitchingAccount.value = true
   selectedAccount.value = accountName
   contactsStore.setAccountFilter(accountName)
-  await contactsStore.fetchMessages(contactsStore.currentContact.id, { account: accountName })
-  await nextTick()
   try {
+    await contactsStore.fetchMessages(contactID, { account: accountName })
+    if (contactsStore.currentContact?.id !== contactID || selectedAccount.value !== accountName) return
+    await nextTick()
   } catch (e) {
     console.error('Error loading media:', e)
+  } finally {
+    isSwitchingAccount.value = false
   }
   scrollToBottom(true)
 }
@@ -1985,6 +1991,7 @@ async function sendMediaMessage() {
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'bg-white/[0.08] text-white/70 hover:text-white/90 hover:bg-white/[0.12] light:bg-gray-200 light:text-gray-600 light:hover:text-gray-800 light:hover:bg-gray-300'
               ]"
+              :disabled="isSwitchingAccount"
               @click="switchAccount(acct.name)"
             >
               {{ acct.name }}
@@ -2200,11 +2207,11 @@ async function sendMediaMessage() {
                 </div>
                 <!-- Button reply - WhatsApp style -->
                 <div v-if="message.message_type === 'button_reply'" class="button-reply-bubble">
-                  <span class="whitespace-pre-wrap break-words">{{ getMessageContent(message) }}</span>
+                  <span class="message-text whitespace-pre-wrap break-words">{{ getMessageContent(message) }}</span>
                   <span class="chat-bubble-time"><span>{{ formatMessageTime(message.created_at) }}</span></span>
                 </div>
                 <!-- Text content (for text messages or captions) -->
-                <span v-else-if="getMessageContent(message)" class="whitespace-pre-wrap break-words">{{ getMessageContent(message) }}<span class="chat-bubble-time"><span>{{ formatMessageTime(message.created_at) }}</span><component v-if="message.direction === 'outgoing'" :is="getMessageStatusIcon(message.status)" :class="['h-4 w-4 status-icon', getMessageStatusClass(message.status)]" /></span></span>
+                <span v-else-if="getMessageContent(message)" class="message-text whitespace-pre-wrap break-words">{{ getMessageContent(message) }}<span class="chat-bubble-time"><span>{{ formatMessageTime(message.created_at) }}</span><component v-if="message.direction === 'outgoing'" :is="getMessageStatusIcon(message.status)" :class="['h-4 w-4 status-icon', getMessageStatusClass(message.status)]" /></span></span>
                 <!-- Fallback for media without URL -->
                 <span v-else-if="isMediaMessage(message) && !message.media_url" class="text-muted-foreground italic">[{{ message.message_type.charAt(0).toUpperCase() + message.message_type.slice(1) }}]<span class="chat-bubble-time"><span>{{ formatMessageTime(message.created_at) }}</span><component v-if="message.direction === 'outgoing'" :is="getMessageStatusIcon(message.status)" :class="['h-4 w-4 status-icon', getMessageStatusClass(message.status)]" /></span></span>
                 <!-- Interactive buttons - WhatsApp style -->
@@ -2797,6 +2804,11 @@ async function sendMediaMessage() {
 </template>
 
 <style scoped>
+.message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sticky-date-enter-active,
 .sticky-date-leave-active {
   transition: opacity 0.3s ease;
