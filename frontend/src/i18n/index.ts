@@ -61,9 +61,13 @@ function getDefaultLocale(): string {
   return messages.tr ? 'tr' : 'en'
 }
 
+const initialLocale = getDefaultLocale()
+document.documentElement.setAttribute('lang', initialLocale)
+document.documentElement.setAttribute('translate', 'no')
+
 export const i18n = createI18n({
   legacy: false, // Use Composition API
-  locale: getDefaultLocale(),
+  locale: initialLocale,
   fallbackLocale: 'en',
   messages,
 })
@@ -77,6 +81,7 @@ export function setLocale(locale: string) {
   i18n.global.locale.value = locale
   localStorage.setItem('locale', locale)
   document.documentElement.setAttribute('lang', locale)
+  document.documentElement.setAttribute('translate', 'no')
 }
 
 // Get current locale
